@@ -62,6 +62,9 @@ type Table struct {
 
 	alignment  uint64
 	sectorSize uint
+
+	// newTable is true if the table completely overwrites existing partitions.
+	newTable bool
 }
 
 // Partition is a single partition entry in GPT.
@@ -128,6 +131,7 @@ func New(dev Device, opts ...Option) (*Table, error) {
 		dev:      dev,
 		options:  options,
 		diskGUID: diskGUID,
+		newTable: true,
 	}
 
 	t.init(lastLBA)
@@ -267,6 +271,7 @@ func (t *Table) init(lastLBA uint64) {
 // Clear the partition table.
 func (t *Table) Clear() {
 	t.entries = nil
+	t.newTable = true
 }
 
 // Compact the partition table by removing empty entries.
@@ -600,6 +605,52 @@ func (t *Table) writePMBR() error {
 }
 
 func (t *Table) syncKernel() error {
+	if t.newTable {
+		return t.syncKernelComplete()
+	}
+
+	return t.syncKernelIncremental()
+}
+
+// syncKernelComplete synchronizes the kernel partition table with the current table by overwriting the whole table.
+//
+// It is incompatible with mounted partitions.
+func (t *Table) syncKernelComplete() error {
+	kernelPartitionNum, err := t.dev.GetKernelLastPartitionNum()
+	if err != nil {
+		return fmt.Errorf("failed to get kernel last partition number: %w", err)
+	}
+
+	// delete all kernel partitions
+	for no := 1; no <= kernelPartitionNum; no++ {
+		if err := t.dev.KernelPartitionDelete(no); err != nil && !errors.Is(err, unix.ENXIO) {
+			return fmt.Errorf("failed to delete partition %d: %w", no, err)
+		}
+	}
+
+	// re-create all partitions
+	for no := 1; no <= len(t.entries); no++ {
+		myEntry := t.entries[no-1]
+
+		if myEntry == nil {
+			continue
+		}
+
+		if err := t.dev.KernelPartitionAdd(no,
+			myEntry.FirstLBA*uint64(t.sectorSize),
+			(myEntry.LastLBA-myEntry.FirstLBA+1)*uint64(t.sectorSize),
+		); err != nil {
+			return fmt.Errorf("failed to add partition %d: %w", no, err)
+		}
+	}
+
+	return nil
+}
+
+// syncKernelIncremental synchronizes the kernel partition table with the current table by doing minimal changes.
+//
+// It allows to change live partition layout, while some partitions are mounted.
+func (t *Table) syncKernelIncremental() error {
 	kernelPartitionNum, err := t.dev.GetKernelLastPartitionNum()
 	if err != nil {
 		return fmt.Errorf("failed to get kernel last partition number: %w", err)

@@ -295,6 +295,75 @@ func TestGPT(t *testing.T) {
 	}
 }
 
+func TestGPTOverwrite(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test requires root privileges")
+	}
+
+	if hostname, _ := os.Hostname(); hostname == "buildkitsandbox" { //nolint: errcheck
+		t.Skip("test not supported under buildkit as partition devices are not propagated from /dev")
+	}
+
+	partType1 := uuid.MustParse("C12A7328-F81F-11D2-BA4B-00A0C93EC93B")
+	partType2 := uuid.MustParse("E6D6D379-F507-44C2-A23C-238F2A3DF928")
+
+	// create a partition table, and then overwrite it with a new one with incompatible layout
+	tmpDir := t.TempDir()
+
+	rawImage := filepath.Join(tmpDir, "image.raw")
+
+	f, err := os.Create(rawImage)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Truncate(int64(3*GiB)))
+	require.NoError(t, f.Close())
+
+	loDev := losetupAttachHelper(t, rawImage, false)
+
+	t.Cleanup(func() {
+		assert.NoError(t, loDev.Detach())
+	})
+
+	disk, err := os.OpenFile(loDev.Path(), os.O_RDWR, 0)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		assert.NoError(t, disk.Close())
+	})
+
+	blkdev := block.NewFromFile(disk)
+
+	gptdev, err := gpt.DeviceFromBlockDevice(blkdev)
+	require.NoError(t, err)
+
+	table, err := gpt.New(gptdev)
+	require.NoError(t, err)
+
+	// allocate 2 1G partitions first
+	require.NoError(t, allocateError(table.AllocatePartition(100*MiB, "1G", partType1)))
+	require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "2G", partType2)))
+
+	require.NoError(t, table.Write())
+
+	assert.FileExists(t, loDev.Path()+"p1")
+	assert.FileExists(t, loDev.Path()+"p2")
+
+	// now attempt to overwrite the partition table with a new one with different layout
+	table2, err := gpt.New(gptdev)
+	require.NoError(t, err)
+
+	// allocate new partitions first
+	require.NoError(t, allocateError(table2.AllocatePartition(600*MiB, "1P", partType1)))
+	require.NoError(t, allocateError(table2.AllocatePartition(600*MiB, "2P", partType2)))
+	require.NoError(t, allocateError(table2.AllocatePartition(600*MiB, "3P", partType2)))
+
+	require.NoError(t, table2.Write())
+
+	assert.FileExists(t, loDev.Path()+"p1")
+	assert.FileExists(t, loDev.Path()+"p2")
+	assert.FileExists(t, loDev.Path()+"p3")
+}
+
 func losetupAttachHelper(t *testing.T, rawImage string, readonly bool) losetup.Device {
 	t.Helper()
 
