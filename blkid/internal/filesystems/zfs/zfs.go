@@ -9,6 +9,9 @@ package zfs
 
 import (
 	"fmt"
+	"slices"
+
+	"github.com/siderolabs/gen/xslices"
 
 	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/magic"
 	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/probe"
@@ -59,16 +62,18 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 
 	found := 0
 
-	var ub ZFSUB
+	var lastUB ZFSUB
 
 	labelBuf := make([]byte, zfsVdevLabelSize)
 
-	for _, labelOffset := range []uint64{
+	labelOffsets := []uint64{
 		0,
 		zfsVdevLabelSize,
 		size - 2*zfsVdevLabelSize - lastLabelOffset,
 		size - zfsVdevLabelSize - lastLabelOffset,
-	} {
+	}
+
+	for _, labelOffset := range labelOffsets {
 		if _, err := r.ReadAt(labelBuf, int64(labelOffset)); err != nil {
 			return nil, fmt.Errorf("reading at offset %d: %w", labelOffset, err)
 		}
@@ -76,9 +81,11 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 		for i := range zfsUberblockCount {
 			ubOffset := zfsLabelUberblock + uint64(i)*zfsUberblockSize
 
-			ub = ZFSUB(labelBuf[ubOffset : ubOffset+ZFSUB_SIZE])
+			ub := ZFSUB(labelBuf[ubOffset : ubOffset+ZFSUB_SIZE])
 			if ub.Get_ub_magic() == zfsMagic || ub.Get_ub_magic() == zfsMagicSwap {
 				found++
+
+				lastUB = ub
 			}
 		}
 
@@ -93,9 +100,23 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 	}
 
 	// TODO: find out GUID name from nvlist
-	uuidLabel := fmt.Sprintf("%016x", ub.Get_ub_guid_sum())
+	uuidLabel := fmt.Sprintf("%016x", lastUB.Get_ub_guid_sum())
 	res := &probe.Result{
 		Label: &uuidLabel,
+		ExtraSignatures: slices.Concat(xslices.Map(labelOffsets, func(labelOffset uint64) []probe.SignatureRange {
+			ranges := make([]probe.SignatureRange, 0, zfsUberblockCount)
+
+			for i := range zfsUberblockCount {
+				ranges = append(ranges,
+					probe.SignatureRange{
+						Offset: labelOffset + zfsLabelUberblock + uint64(i)*zfsUberblockSize,
+						Size:   8, // magic is 8 bytes
+					},
+				)
+			}
+
+			return ranges
+		})...),
 	}
 
 	return res, nil

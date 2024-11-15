@@ -7,6 +7,7 @@ package gpt
 
 import (
 	"bytes"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/siderolabs/go-pointer"
@@ -46,13 +47,20 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 	// try reading primary header
 	hdr, entries, err := gptstructs.ReadHeader(r, primaryLBA, lastLBA)
 	if err != nil {
+		if errors.Is(err, gptstructs.ErrZeroedHeader) {
+			// treat zeroed out primary header as no header, and skip backup header
+			// Talos before 1.8 wiped only GPT primary headers, so this provides better backwards compatibility
+			// if the primary header is corrupted, we can still read the backup header
+			return nil, nil //nolint:nilnil
+		}
+
 		return nil, err
 	}
 
 	if hdr == nil {
 		// try reading backup header
 		hdr, entries, err = gptstructs.ReadHeader(r, lastLBA, lastLBA)
-		if err != nil {
+		if err != nil && !errors.Is(err, gptstructs.ErrZeroedHeader) { // skip zeroed out backup headers
 			return nil, err
 		}
 	}
@@ -74,6 +82,17 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 
 		BlockSize:  uint32(sectorSize),
 		ProbedSize: uint64(sectorSize) * (hdr.Get_last_usable_lba() - hdr.Get_first_usable_lba() + 1),
+
+		ExtraSignatures: []probe.SignatureRange{
+			{
+				Offset: primaryLBA * uint64(sectorSize),
+				Size:   uint64(sectorSize),
+			},
+			{
+				Offset: lastLBA * uint64(sectorSize),
+				Size:   uint64(sectorSize),
+			},
+		},
 	}
 
 	partIdx := uint(1)

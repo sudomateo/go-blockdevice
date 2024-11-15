@@ -231,6 +231,7 @@ func TestProbePathFilesystems(t *testing.T) {
 		expectedBlockSize   []uint32
 		expectedFSBlockSize []uint32
 		expectedFSSize      uint64
+		expectedSignatures  []blkid.SignatureRange
 	}{
 		{
 			name: "xfs",
@@ -245,6 +246,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{512},
 			expectedFSBlockSize: []uint32{4096},
 			expectedFSSize:      436 * MiB,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 0, Size: 4},
+			},
 		},
 		{
 			name: "extfs",
@@ -259,6 +263,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{1024, 4096},
 			expectedFSBlockSize: []uint32{1024, 4096},
 			expectedFSSize:      500 * MiB,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 1080, Size: 2},
+			},
 		},
 		{
 			name: "vfat small",
@@ -270,6 +277,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{512},
 			expectedFSBlockSize: []uint32{2048},
 			expectedFSSize:      100 * MiB,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 54, Size: 8},
+			},
 		},
 		{
 			name: "vfat big",
@@ -281,6 +291,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{512},
 			expectedFSBlockSize: []uint32{8192},
 			expectedFSSize:      524256768,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 54, Size: 8},
+			},
 		},
 		{
 			name: "luks",
@@ -291,6 +304,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedName:  "luks",
 			expectedLabel: "cryptlabel",
 			expectUUID:    true,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 0, Size: 6},
+			},
 		},
 		{
 			name:   "iso",
@@ -305,6 +321,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{2048},
 			expectedFSBlockSize: []uint32{2048},
 			expectedFSSize:      0x157800,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 32769, Size: 5},
+			},
 		},
 		{
 			name:   "iso joilet",
@@ -319,6 +338,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{2048},
 			expectedFSBlockSize: []uint32{2048},
 			expectedFSSize:      0x15b000,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 32769, Size: 5},
+			},
 		},
 		{
 			name: "swap 8k",
@@ -333,6 +355,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{8192},
 			expectedFSBlockSize: []uint32{8192},
 			expectedFSSize:      524279808,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 8182, Size: 10},
+			},
 		},
 		{
 			name: "swap 4k",
@@ -347,6 +372,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{4096},
 			expectedFSBlockSize: []uint32{4096},
 			expectedFSSize:      524283904,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 4086, Size: 10},
+			},
 		},
 		{
 			name: "swap 200 MiB",
@@ -361,6 +389,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{8192},
 			expectedFSBlockSize: []uint32{8192},
 			expectedFSSize:      209707008,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 8182, Size: 10},
+			},
 		},
 		{
 			name:     "lvm2-pv",
@@ -371,6 +402,9 @@ func TestProbePathFilesystems(t *testing.T) {
 
 			expectedName:       "lvm2-pv",
 			expectedLabelRegex: regexp.MustCompile(`(?m)^[0-9a-zA-Z]{6}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{4}-[0-9a-zA-Z]{6}$`),
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 536, Size: 8},
+			},
 		},
 		{
 			name:   "zfs",
@@ -381,6 +415,7 @@ func TestProbePathFilesystems(t *testing.T) {
 
 			expectedName:       "zfs",
 			expectedLabelRegex: regexp.MustCompile(`^[0-9a-f]{16}$`),
+			expectedSignatures: zfsSignatures,
 		},
 		{
 			name:   "squashfs",
@@ -394,6 +429,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedBlockSize:   []uint32{0x20000},
 			expectedFSBlockSize: []uint32{0x20000},
 			expectedFSSize:      0x100554,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 0, Size: 4},
+			},
 		},
 		{
 			name: "talosmeta",
@@ -404,6 +442,9 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedName: "talosmeta",
 
 			expectedFSSize: 2 * 256 * 1024,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 0, Size: 4},
+			},
 		},
 	} {
 		for _, useLoopDevice := range []bool{false, true} {
@@ -493,6 +534,8 @@ func TestProbePathFilesystems(t *testing.T) {
 					}
 
 					assert.Equal(t, test.expectedFSSize, info.ProbedSize)
+
+					assert.Equal(t, test.expectedSignatures, info.SignatureRanges)
 				})
 			})
 		}
@@ -519,6 +562,29 @@ size=      204800, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=7F5FCD6C-A703
 	cmd.Stderr = os.Stderr
 
 	require.NoError(t, cmd.Run())
+}
+
+func corruptGPT(f func(*testing.T, string)) func(*testing.T, string) {
+	return func(t *testing.T, path string) {
+		t.Helper()
+
+		f(t, path)
+
+		buf := make([]byte, 512)
+
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		require.NoError(t, err)
+
+		_, err = f.ReadAt(buf, 512)
+		require.NoError(t, err)
+
+		buf[9] ^= 0xff // flip bits
+
+		_, err = f.WriteAt(buf, 512)
+		require.NoError(t, err)
+
+		require.NoError(t, f.Close())
+	}
 }
 
 func wipe1MB(f func(*testing.T, string)) func(*testing.T, string) {
@@ -607,8 +673,9 @@ func TestProbePathGPT(t *testing.T) {
 		size  uint64
 		setup func(*testing.T, string)
 
-		expectedUUID  uuid.UUID
-		expectedParts []blkid.NestedProbeResult
+		expectedUUID       uuid.UUID
+		expectedParts      []blkid.NestedProbeResult
+		expectedSignatures []blkid.SignatureRange
 	}{
 		{
 			name: "good GPT",
@@ -618,15 +685,35 @@ func TestProbePathGPT(t *testing.T) {
 
 			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
 			expectedParts: expectedParts,
+			expectedSignatures: []blkid.SignatureRange{
+				{
+					Offset: 512,
+					Size:   512,
+				},
+				{
+					Offset: 2147483136,
+					Size:   512,
+				},
+			},
 		},
 		{
 			name: "corrupted GPT",
 
 			size:  2 * GiB,
-			setup: wipe1MB(setupGPT),
+			setup: corruptGPT(setupGPT),
 
 			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
 			expectedParts: expectedParts,
+			expectedSignatures: []blkid.SignatureRange{
+				{
+					Offset: 512,
+					Size:   512,
+				},
+				{
+					Offset: 2147483136,
+					Size:   512,
+				},
+			},
 		},
 	} {
 		for _, useLoopDevice := range []bool{false, true} {
@@ -686,10 +773,56 @@ func TestProbePathGPT(t *testing.T) {
 					require.NotNil(t, info.UUID)
 					assert.Equal(t, test.expectedUUID, *info.UUID)
 
+					assert.Equal(t, test.expectedSignatures, info.SignatureRanges)
+
 					assert.Equal(t, test.expectedParts, info.Parts)
 				})
 			})
 		}
+	}
+}
+
+func TestProbeHalfWipedGPT(t *testing.T) {
+	// wiping first 1MB (first header) should not detect GPT
+	for _, useLoopDevice := range []bool{false, true} {
+		t.Run(fmt.Sprintf("loop=%v", useLoopDevice), func(t *testing.T) {
+			if useLoopDevice && os.Geteuid() != 0 {
+				t.Skip("test requires root privileges")
+			}
+
+			tmpDir := t.TempDir()
+
+			rawImage := filepath.Join(tmpDir, "image.raw")
+
+			f, err := os.Create(rawImage)
+			require.NoError(t, err)
+
+			require.NoError(t, f.Truncate(int64(2*GiB)))
+			require.NoError(t, f.Close())
+
+			var probePath string
+
+			if useLoopDevice {
+				loDev := losetupAttachHelper(t, rawImage, false)
+
+				t.Cleanup(func() {
+					assert.NoError(t, loDev.Detach())
+				})
+
+				probePath = loDev.Path()
+			} else {
+				probePath = rawImage
+			}
+
+			wipe1MB(setupGPT)(t, probePath)
+
+			logger := zaptest.NewLogger(t)
+
+			info, err := blkid.ProbePath(probePath, blkid.WithProbeLogger(logger))
+			require.NoError(t, err)
+
+			assert.Empty(t, info.Name)
+		})
 	}
 }
 
@@ -710,9 +843,7 @@ func TestProbePathNested(t *testing.T) {
 		t.Skip("test requires root privileges")
 	}
 
-	if hostname, _ := os.Hostname(); hostname == "buildkitsandbox" { //nolint: errcheck
-		t.Skip("test not supported under buildkit as partition devices are not propagated from /dev")
-	}
+	skipUnderBuildkit(t)
 
 	for _, test := range []struct { //nolint:govet
 		name string
@@ -720,8 +851,9 @@ func TestProbePathNested(t *testing.T) {
 		size  uint64
 		setup func(*testing.T, string)
 
-		expectedUUID  uuid.UUID
-		expectedParts []blkid.NestedProbeResult
+		expectedUUID       uuid.UUID
+		expectedParts      []blkid.NestedProbeResult
+		expectedSignatures []blkid.SignatureRange
 	}{
 		{
 			name: "good GPT, ext4fs, xfs, vfat, none",
@@ -731,6 +863,28 @@ func TestProbePathNested(t *testing.T) {
 
 			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
 			expectedParts: expectedParts,
+			expectedSignatures: []blkid.SignatureRange{
+				{
+					Offset: 512,
+					Size:   512,
+				},
+				{
+					Offset: 2147483136,
+					Size:   512,
+				},
+				{
+					Offset: 1048630,
+					Size:   8,
+				},
+				{
+					Offset: 106955832,
+					Size:   2,
+				},
+				{
+					Offset: 1261436928,
+					Size:   4,
+				},
+			},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -774,6 +928,8 @@ func TestProbePathNested(t *testing.T) {
 			require.NotNil(t, info.UUID)
 			assert.Equal(t, test.expectedUUID, *info.UUID)
 
+			assert.Equal(t, test.expectedSignatures, info.SignatureRanges)
+
 			// extract only partition information and compare it separately
 			partitionsOnly := xslices.Map(info.Parts, func(p blkid.NestedProbeResult) blkid.NestedProbeResult {
 				return blkid.NestedProbeResult{
@@ -811,7 +967,7 @@ func TestProbePathNested(t *testing.T) {
 	}
 }
 
-func setupOurGPT(t *testing.T, path string) {
+func setupOurGPT(t *testing.T, path string, createFilesystems bool) {
 	t.Helper()
 
 	blk, err := block.NewFromPath(path, block.OpenForWrite())
@@ -855,10 +1011,12 @@ func setupOurGPT(t *testing.T, path string) {
 
 	require.NoError(t, part.Write())
 
-	vfatSetup(t, path+"p1")
-	xfsSetup(t, path+"p3")
-	xfsSetup(t, path+"p5")
-	xfsSetup(t, path+"p6")
+	if createFilesystems {
+		vfatSetup(t, path+"p1")
+		xfsSetup(t, path+"p3")
+		xfsSetup(t, path+"p5")
+		xfsSetup(t, path+"p6")
+	}
 
 	require.NoError(t, blk.Unlock())
 	require.NoError(t, blk.Close())
@@ -869,18 +1027,17 @@ func TestProbePathOurGPT(t *testing.T) {
 		t.Skip("test requires root privileges")
 	}
 
-	if hostname, _ := os.Hostname(); hostname == "buildkitsandbox" { //nolint: errcheck
-		t.Skip("test not supported under buildkit as partition devices are not propagated from /dev")
-	}
+	skipUnderBuildkit(t)
 
 	for _, test := range []struct { //nolint:govet
 		name string
 
 		size  uint64
-		setup func(*testing.T, string)
+		setup func(*testing.T, string, bool)
 
-		expectedUUID  uuid.UUID
-		expectedParts []blkid.NestedProbeResult
+		expectedUUID       uuid.UUID
+		expectedParts      []blkid.NestedProbeResult
+		expectedSignatures []blkid.SignatureRange
 	}{
 		{
 			name: "good GPT, ext4fs, xfs, vfat, none",
@@ -890,6 +1047,28 @@ func TestProbePathOurGPT(t *testing.T) {
 
 			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
 			expectedParts: expectedParts,
+			expectedSignatures: []blkid.SignatureRange{
+				{
+					Offset: 512,
+					Size:   512,
+				},
+				{
+					Offset: 2147483136,
+					Size:   512,
+				},
+				{
+					Offset: 1048630,
+					Size:   8,
+				},
+				{
+					Offset: 106955832,
+					Size:   2,
+				},
+				{
+					Offset: 1261436928,
+					Size:   4,
+				},
+			},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -911,7 +1090,7 @@ func TestProbePathOurGPT(t *testing.T) {
 
 			probePath := loDev.Path()
 
-			test.setup(t, probePath)
+			test.setup(t, probePath, true)
 
 			logger := zaptest.NewLogger(t)
 
@@ -975,6 +1154,83 @@ func TestProbePathOurGPT(t *testing.T) {
 	}
 }
 
+func TestProbeWithWipeRanges(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test requires root privileges")
+	}
+
+	skipUnderBuildkit(t)
+
+	tmpDir := t.TempDir()
+
+	rawImage := filepath.Join(tmpDir, "image.raw")
+
+	f, err := os.Create(rawImage)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Truncate(int64(2*GiB)))
+	require.NoError(t, f.Close())
+
+	loDev := losetupAttachHelper(t, rawImage, false)
+
+	t.Cleanup(func() {
+		assert.NoError(t, loDev.Detach())
+	})
+
+	probePath := loDev.Path()
+
+	// setup initial GPT and filesystems
+	setupOurGPT(t, probePath, true)
+
+	logger := zaptest.NewLogger(t)
+
+	info, err := blkid.ProbePath(probePath, blkid.WithProbeLogger(logger))
+	require.NoError(t, err)
+
+	assert.Equal(t, "gpt", info.Name)
+	assert.Len(t, info.Parts, 6)
+
+	for _, idx := range []int{0, 2, 4, 5} {
+		assert.NotEmpty(t, info.Parts[idx].Name)
+	}
+
+	// wipe by probed ranges
+	blk, err := block.NewFromPath(probePath, block.OpenForWrite())
+	require.NoError(t, err)
+
+	require.NoError(t, blk.Lock(true))
+
+	require.NoError(t, blk.FastWipe(xslices.Map(info.SignatureRanges,
+		func(r blkid.SignatureRange) block.Range {
+			return block.Range(r)
+		},
+	)...))
+
+	require.NoError(t, blk.Unlock())
+	require.NoError(t, blk.Close())
+
+	// probe again
+	info, err = blkid.ProbePath(probePath, blkid.WithProbeLogger(logger))
+	require.NoError(t, err)
+
+	assert.Empty(t, info.Name)
+	assert.Empty(t, info.Parts)
+
+	// re-create partitions but without filesystems
+	setupOurGPT(t, probePath, false)
+
+	info, err = blkid.ProbePath(probePath, blkid.WithProbeLogger(logger))
+	require.NoError(t, err)
+
+	assert.Equal(t, "gpt", info.Name)
+	assert.Len(t, info.Parts, 6)
+
+	// filesystem should not be detected
+	for _, idx := range []int{0, 2, 4, 5} {
+		assert.Empty(t, info.Parts[idx].Name)
+	}
+}
+
 func losetupAttachHelper(t *testing.T, rawImage string, readonly bool) losetup.Device { //nolint:unparam
 	t.Helper()
 
@@ -1000,4 +1256,527 @@ func losetupAttachHelper(t *testing.T, rawImage string, readonly bool) losetup.D
 	t.Fatal("failed to attach loop device") //nolint:revive
 
 	panic("unreachable")
+}
+
+func skipUnderBuildkit(t *testing.T) {
+	t.Helper()
+
+	if hostname, _ := os.Hostname(); hostname == "buildkitsandbox" { //nolint: errcheck
+		t.Skip("test not supported under buildkit as partition devices are not propagated from /dev")
+	}
+}
+
+var zfsSignatures = []blkid.SignatureRange{
+	{Offset: 131072, Size: 8},
+	{Offset: 132096, Size: 8},
+	{Offset: 133120, Size: 8},
+	{Offset: 134144, Size: 8},
+	{Offset: 135168, Size: 8},
+	{Offset: 136192, Size: 8},
+	{Offset: 137216, Size: 8},
+	{Offset: 138240, Size: 8},
+	{Offset: 139264, Size: 8},
+	{Offset: 140288, Size: 8},
+	{Offset: 141312, Size: 8},
+	{Offset: 142336, Size: 8},
+	{Offset: 143360, Size: 8},
+	{Offset: 144384, Size: 8},
+	{Offset: 145408, Size: 8},
+	{Offset: 146432, Size: 8},
+	{Offset: 147456, Size: 8},
+	{Offset: 148480, Size: 8},
+	{Offset: 149504, Size: 8},
+	{Offset: 150528, Size: 8},
+	{Offset: 151552, Size: 8},
+	{Offset: 152576, Size: 8},
+	{Offset: 153600, Size: 8},
+	{Offset: 154624, Size: 8},
+	{Offset: 155648, Size: 8},
+	{Offset: 156672, Size: 8},
+	{Offset: 157696, Size: 8},
+	{Offset: 158720, Size: 8},
+	{Offset: 159744, Size: 8},
+	{Offset: 160768, Size: 8},
+	{Offset: 161792, Size: 8},
+	{Offset: 162816, Size: 8},
+	{Offset: 163840, Size: 8},
+	{Offset: 164864, Size: 8},
+	{Offset: 165888, Size: 8},
+	{Offset: 166912, Size: 8},
+	{Offset: 167936, Size: 8},
+	{Offset: 168960, Size: 8},
+	{Offset: 169984, Size: 8},
+	{Offset: 171008, Size: 8},
+	{Offset: 172032, Size: 8},
+	{Offset: 173056, Size: 8},
+	{Offset: 174080, Size: 8},
+	{Offset: 175104, Size: 8},
+	{Offset: 176128, Size: 8},
+	{Offset: 177152, Size: 8},
+	{Offset: 178176, Size: 8},
+	{Offset: 179200, Size: 8},
+	{Offset: 180224, Size: 8},
+	{Offset: 181248, Size: 8},
+	{Offset: 182272, Size: 8},
+	{Offset: 183296, Size: 8},
+	{Offset: 184320, Size: 8},
+	{Offset: 185344, Size: 8},
+	{Offset: 186368, Size: 8},
+	{Offset: 187392, Size: 8},
+	{Offset: 188416, Size: 8},
+	{Offset: 189440, Size: 8},
+	{Offset: 190464, Size: 8},
+	{Offset: 191488, Size: 8},
+	{Offset: 192512, Size: 8},
+	{Offset: 193536, Size: 8},
+	{Offset: 194560, Size: 8},
+	{Offset: 195584, Size: 8},
+	{Offset: 196608, Size: 8},
+	{Offset: 197632, Size: 8},
+	{Offset: 198656, Size: 8},
+	{Offset: 199680, Size: 8},
+	{Offset: 200704, Size: 8},
+	{Offset: 201728, Size: 8},
+	{Offset: 202752, Size: 8},
+	{Offset: 203776, Size: 8},
+	{Offset: 204800, Size: 8},
+	{Offset: 205824, Size: 8},
+	{Offset: 206848, Size: 8},
+	{Offset: 207872, Size: 8},
+	{Offset: 208896, Size: 8},
+	{Offset: 209920, Size: 8},
+	{Offset: 210944, Size: 8},
+	{Offset: 211968, Size: 8},
+	{Offset: 212992, Size: 8},
+	{Offset: 214016, Size: 8},
+	{Offset: 215040, Size: 8},
+	{Offset: 216064, Size: 8},
+	{Offset: 217088, Size: 8},
+	{Offset: 218112, Size: 8},
+	{Offset: 219136, Size: 8},
+	{Offset: 220160, Size: 8},
+	{Offset: 221184, Size: 8},
+	{Offset: 222208, Size: 8},
+	{Offset: 223232, Size: 8},
+	{Offset: 224256, Size: 8},
+	{Offset: 225280, Size: 8},
+	{Offset: 226304, Size: 8},
+	{Offset: 227328, Size: 8},
+	{Offset: 228352, Size: 8},
+	{Offset: 229376, Size: 8},
+	{Offset: 230400, Size: 8},
+	{Offset: 231424, Size: 8},
+	{Offset: 232448, Size: 8},
+	{Offset: 233472, Size: 8},
+	{Offset: 234496, Size: 8},
+	{Offset: 235520, Size: 8},
+	{Offset: 236544, Size: 8},
+	{Offset: 237568, Size: 8},
+	{Offset: 238592, Size: 8},
+	{Offset: 239616, Size: 8},
+	{Offset: 240640, Size: 8},
+	{Offset: 241664, Size: 8},
+	{Offset: 242688, Size: 8},
+	{Offset: 243712, Size: 8},
+	{Offset: 244736, Size: 8},
+	{Offset: 245760, Size: 8},
+	{Offset: 246784, Size: 8},
+	{Offset: 247808, Size: 8},
+	{Offset: 248832, Size: 8},
+	{Offset: 249856, Size: 8},
+	{Offset: 250880, Size: 8},
+	{Offset: 251904, Size: 8},
+	{Offset: 252928, Size: 8},
+	{Offset: 253952, Size: 8},
+	{Offset: 254976, Size: 8},
+	{Offset: 256000, Size: 8},
+	{Offset: 257024, Size: 8},
+	{Offset: 258048, Size: 8},
+	{Offset: 259072, Size: 8},
+	{Offset: 260096, Size: 8},
+	{Offset: 261120, Size: 8},
+	{Offset: 393216, Size: 8},
+	{Offset: 394240, Size: 8},
+	{Offset: 395264, Size: 8},
+	{Offset: 396288, Size: 8},
+	{Offset: 397312, Size: 8},
+	{Offset: 398336, Size: 8},
+	{Offset: 399360, Size: 8},
+	{Offset: 400384, Size: 8},
+	{Offset: 401408, Size: 8},
+	{Offset: 402432, Size: 8},
+	{Offset: 403456, Size: 8},
+	{Offset: 404480, Size: 8},
+	{Offset: 405504, Size: 8},
+	{Offset: 406528, Size: 8},
+	{Offset: 407552, Size: 8},
+	{Offset: 408576, Size: 8},
+	{Offset: 409600, Size: 8},
+	{Offset: 410624, Size: 8},
+	{Offset: 411648, Size: 8},
+	{Offset: 412672, Size: 8},
+	{Offset: 413696, Size: 8},
+	{Offset: 414720, Size: 8},
+	{Offset: 415744, Size: 8},
+	{Offset: 416768, Size: 8},
+	{Offset: 417792, Size: 8},
+	{Offset: 418816, Size: 8},
+	{Offset: 419840, Size: 8},
+	{Offset: 420864, Size: 8},
+	{Offset: 421888, Size: 8},
+	{Offset: 422912, Size: 8},
+	{Offset: 423936, Size: 8},
+	{Offset: 424960, Size: 8},
+	{Offset: 425984, Size: 8},
+	{Offset: 427008, Size: 8},
+	{Offset: 428032, Size: 8},
+	{Offset: 429056, Size: 8},
+	{Offset: 430080, Size: 8},
+	{Offset: 431104, Size: 8},
+	{Offset: 432128, Size: 8},
+	{Offset: 433152, Size: 8},
+	{Offset: 434176, Size: 8},
+	{Offset: 435200, Size: 8},
+	{Offset: 436224, Size: 8},
+	{Offset: 437248, Size: 8},
+	{Offset: 438272, Size: 8},
+	{Offset: 439296, Size: 8},
+	{Offset: 440320, Size: 8},
+	{Offset: 441344, Size: 8},
+	{Offset: 442368, Size: 8},
+	{Offset: 443392, Size: 8},
+	{Offset: 444416, Size: 8},
+	{Offset: 445440, Size: 8},
+	{Offset: 446464, Size: 8},
+	{Offset: 447488, Size: 8},
+	{Offset: 448512, Size: 8},
+	{Offset: 449536, Size: 8},
+	{Offset: 450560, Size: 8},
+	{Offset: 451584, Size: 8},
+	{Offset: 452608, Size: 8},
+	{Offset: 453632, Size: 8},
+	{Offset: 454656, Size: 8},
+	{Offset: 455680, Size: 8},
+	{Offset: 456704, Size: 8},
+	{Offset: 457728, Size: 8},
+	{Offset: 458752, Size: 8},
+	{Offset: 459776, Size: 8},
+	{Offset: 460800, Size: 8},
+	{Offset: 461824, Size: 8},
+	{Offset: 462848, Size: 8},
+	{Offset: 463872, Size: 8},
+	{Offset: 464896, Size: 8},
+	{Offset: 465920, Size: 8},
+	{Offset: 466944, Size: 8},
+	{Offset: 467968, Size: 8},
+	{Offset: 468992, Size: 8},
+	{Offset: 470016, Size: 8},
+	{Offset: 471040, Size: 8},
+	{Offset: 472064, Size: 8},
+	{Offset: 473088, Size: 8},
+	{Offset: 474112, Size: 8},
+	{Offset: 475136, Size: 8},
+	{Offset: 476160, Size: 8},
+	{Offset: 477184, Size: 8},
+	{Offset: 478208, Size: 8},
+	{Offset: 479232, Size: 8},
+	{Offset: 480256, Size: 8},
+	{Offset: 481280, Size: 8},
+	{Offset: 482304, Size: 8},
+	{Offset: 483328, Size: 8},
+	{Offset: 484352, Size: 8},
+	{Offset: 485376, Size: 8},
+	{Offset: 486400, Size: 8},
+	{Offset: 487424, Size: 8},
+	{Offset: 488448, Size: 8},
+	{Offset: 489472, Size: 8},
+	{Offset: 490496, Size: 8},
+	{Offset: 491520, Size: 8},
+	{Offset: 492544, Size: 8},
+	{Offset: 493568, Size: 8},
+	{Offset: 494592, Size: 8},
+	{Offset: 495616, Size: 8},
+	{Offset: 496640, Size: 8},
+	{Offset: 497664, Size: 8},
+	{Offset: 498688, Size: 8},
+	{Offset: 499712, Size: 8},
+	{Offset: 500736, Size: 8},
+	{Offset: 501760, Size: 8},
+	{Offset: 502784, Size: 8},
+	{Offset: 503808, Size: 8},
+	{Offset: 504832, Size: 8},
+	{Offset: 505856, Size: 8},
+	{Offset: 506880, Size: 8},
+	{Offset: 507904, Size: 8},
+	{Offset: 508928, Size: 8},
+	{Offset: 509952, Size: 8},
+	{Offset: 510976, Size: 8},
+	{Offset: 512000, Size: 8},
+	{Offset: 513024, Size: 8},
+	{Offset: 514048, Size: 8},
+	{Offset: 515072, Size: 8},
+	{Offset: 516096, Size: 8},
+	{Offset: 517120, Size: 8},
+	{Offset: 518144, Size: 8},
+	{Offset: 519168, Size: 8},
+	{Offset: 520192, Size: 8},
+	{Offset: 521216, Size: 8},
+	{Offset: 522240, Size: 8},
+	{Offset: 523264, Size: 8},
+	{Offset: 66715648, Size: 8},
+	{Offset: 66716672, Size: 8},
+	{Offset: 66717696, Size: 8},
+	{Offset: 66718720, Size: 8},
+	{Offset: 66719744, Size: 8},
+	{Offset: 66720768, Size: 8},
+	{Offset: 66721792, Size: 8},
+	{Offset: 66722816, Size: 8},
+	{Offset: 66723840, Size: 8},
+	{Offset: 66724864, Size: 8},
+	{Offset: 66725888, Size: 8},
+	{Offset: 66726912, Size: 8},
+	{Offset: 66727936, Size: 8},
+	{Offset: 66728960, Size: 8},
+	{Offset: 66729984, Size: 8},
+	{Offset: 66731008, Size: 8},
+	{Offset: 66732032, Size: 8},
+	{Offset: 66733056, Size: 8},
+	{Offset: 66734080, Size: 8},
+	{Offset: 66735104, Size: 8},
+	{Offset: 66736128, Size: 8},
+	{Offset: 66737152, Size: 8},
+	{Offset: 66738176, Size: 8},
+	{Offset: 66739200, Size: 8},
+	{Offset: 66740224, Size: 8},
+	{Offset: 66741248, Size: 8},
+	{Offset: 66742272, Size: 8},
+	{Offset: 66743296, Size: 8},
+	{Offset: 66744320, Size: 8},
+	{Offset: 66745344, Size: 8},
+	{Offset: 66746368, Size: 8},
+	{Offset: 66747392, Size: 8},
+	{Offset: 66748416, Size: 8},
+	{Offset: 66749440, Size: 8},
+	{Offset: 66750464, Size: 8},
+	{Offset: 66751488, Size: 8},
+	{Offset: 66752512, Size: 8},
+	{Offset: 66753536, Size: 8},
+	{Offset: 66754560, Size: 8},
+	{Offset: 66755584, Size: 8},
+	{Offset: 66756608, Size: 8},
+	{Offset: 66757632, Size: 8},
+	{Offset: 66758656, Size: 8},
+	{Offset: 66759680, Size: 8},
+	{Offset: 66760704, Size: 8},
+	{Offset: 66761728, Size: 8},
+	{Offset: 66762752, Size: 8},
+	{Offset: 66763776, Size: 8},
+	{Offset: 66764800, Size: 8},
+	{Offset: 66765824, Size: 8},
+	{Offset: 66766848, Size: 8},
+	{Offset: 66767872, Size: 8},
+	{Offset: 66768896, Size: 8},
+	{Offset: 66769920, Size: 8},
+	{Offset: 66770944, Size: 8},
+	{Offset: 66771968, Size: 8},
+	{Offset: 66772992, Size: 8},
+	{Offset: 66774016, Size: 8},
+	{Offset: 66775040, Size: 8},
+	{Offset: 66776064, Size: 8},
+	{Offset: 66777088, Size: 8},
+	{Offset: 66778112, Size: 8},
+	{Offset: 66779136, Size: 8},
+	{Offset: 66780160, Size: 8},
+	{Offset: 66781184, Size: 8},
+	{Offset: 66782208, Size: 8},
+	{Offset: 66783232, Size: 8},
+	{Offset: 66784256, Size: 8},
+	{Offset: 66785280, Size: 8},
+	{Offset: 66786304, Size: 8},
+	{Offset: 66787328, Size: 8},
+	{Offset: 66788352, Size: 8},
+	{Offset: 66789376, Size: 8},
+	{Offset: 66790400, Size: 8},
+	{Offset: 66791424, Size: 8},
+	{Offset: 66792448, Size: 8},
+	{Offset: 66793472, Size: 8},
+	{Offset: 66794496, Size: 8},
+	{Offset: 66795520, Size: 8},
+	{Offset: 66796544, Size: 8},
+	{Offset: 66797568, Size: 8},
+	{Offset: 66798592, Size: 8},
+	{Offset: 66799616, Size: 8},
+	{Offset: 66800640, Size: 8},
+	{Offset: 66801664, Size: 8},
+	{Offset: 66802688, Size: 8},
+	{Offset: 66803712, Size: 8},
+	{Offset: 66804736, Size: 8},
+	{Offset: 66805760, Size: 8},
+	{Offset: 66806784, Size: 8},
+	{Offset: 66807808, Size: 8},
+	{Offset: 66808832, Size: 8},
+	{Offset: 66809856, Size: 8},
+	{Offset: 66810880, Size: 8},
+	{Offset: 66811904, Size: 8},
+	{Offset: 66812928, Size: 8},
+	{Offset: 66813952, Size: 8},
+	{Offset: 66814976, Size: 8},
+	{Offset: 66816000, Size: 8},
+	{Offset: 66817024, Size: 8},
+	{Offset: 66818048, Size: 8},
+	{Offset: 66819072, Size: 8},
+	{Offset: 66820096, Size: 8},
+	{Offset: 66821120, Size: 8},
+	{Offset: 66822144, Size: 8},
+	{Offset: 66823168, Size: 8},
+	{Offset: 66824192, Size: 8},
+	{Offset: 66825216, Size: 8},
+	{Offset: 66826240, Size: 8},
+	{Offset: 66827264, Size: 8},
+	{Offset: 66828288, Size: 8},
+	{Offset: 66829312, Size: 8},
+	{Offset: 66830336, Size: 8},
+	{Offset: 66831360, Size: 8},
+	{Offset: 66832384, Size: 8},
+	{Offset: 66833408, Size: 8},
+	{Offset: 66834432, Size: 8},
+	{Offset: 66835456, Size: 8},
+	{Offset: 66836480, Size: 8},
+	{Offset: 66837504, Size: 8},
+	{Offset: 66838528, Size: 8},
+	{Offset: 66839552, Size: 8},
+	{Offset: 66840576, Size: 8},
+	{Offset: 66841600, Size: 8},
+	{Offset: 66842624, Size: 8},
+	{Offset: 66843648, Size: 8},
+	{Offset: 66844672, Size: 8},
+	{Offset: 66845696, Size: 8},
+	{Offset: 66977792, Size: 8},
+	{Offset: 66978816, Size: 8},
+	{Offset: 66979840, Size: 8},
+	{Offset: 66980864, Size: 8},
+	{Offset: 66981888, Size: 8},
+	{Offset: 66982912, Size: 8},
+	{Offset: 66983936, Size: 8},
+	{Offset: 66984960, Size: 8},
+	{Offset: 66985984, Size: 8},
+	{Offset: 66987008, Size: 8},
+	{Offset: 66988032, Size: 8},
+	{Offset: 66989056, Size: 8},
+	{Offset: 66990080, Size: 8},
+	{Offset: 66991104, Size: 8},
+	{Offset: 66992128, Size: 8},
+	{Offset: 66993152, Size: 8},
+	{Offset: 66994176, Size: 8},
+	{Offset: 66995200, Size: 8},
+	{Offset: 66996224, Size: 8},
+	{Offset: 66997248, Size: 8},
+	{Offset: 66998272, Size: 8},
+	{Offset: 66999296, Size: 8},
+	{Offset: 67000320, Size: 8},
+	{Offset: 67001344, Size: 8},
+	{Offset: 67002368, Size: 8},
+	{Offset: 67003392, Size: 8},
+	{Offset: 67004416, Size: 8},
+	{Offset: 67005440, Size: 8},
+	{Offset: 67006464, Size: 8},
+	{Offset: 67007488, Size: 8},
+	{Offset: 67008512, Size: 8},
+	{Offset: 67009536, Size: 8},
+	{Offset: 67010560, Size: 8},
+	{Offset: 67011584, Size: 8},
+	{Offset: 67012608, Size: 8},
+	{Offset: 67013632, Size: 8},
+	{Offset: 67014656, Size: 8},
+	{Offset: 67015680, Size: 8},
+	{Offset: 67016704, Size: 8},
+	{Offset: 67017728, Size: 8},
+	{Offset: 67018752, Size: 8},
+	{Offset: 67019776, Size: 8},
+	{Offset: 67020800, Size: 8},
+	{Offset: 67021824, Size: 8},
+	{Offset: 67022848, Size: 8},
+	{Offset: 67023872, Size: 8},
+	{Offset: 67024896, Size: 8},
+	{Offset: 67025920, Size: 8},
+	{Offset: 67026944, Size: 8},
+	{Offset: 67027968, Size: 8},
+	{Offset: 67028992, Size: 8},
+	{Offset: 67030016, Size: 8},
+	{Offset: 67031040, Size: 8},
+	{Offset: 67032064, Size: 8},
+	{Offset: 67033088, Size: 8},
+	{Offset: 67034112, Size: 8},
+	{Offset: 67035136, Size: 8},
+	{Offset: 67036160, Size: 8},
+	{Offset: 67037184, Size: 8},
+	{Offset: 67038208, Size: 8},
+	{Offset: 67039232, Size: 8},
+	{Offset: 67040256, Size: 8},
+	{Offset: 67041280, Size: 8},
+	{Offset: 67042304, Size: 8},
+	{Offset: 67043328, Size: 8},
+	{Offset: 67044352, Size: 8},
+	{Offset: 67045376, Size: 8},
+	{Offset: 67046400, Size: 8},
+	{Offset: 67047424, Size: 8},
+	{Offset: 67048448, Size: 8},
+	{Offset: 67049472, Size: 8},
+	{Offset: 67050496, Size: 8},
+	{Offset: 67051520, Size: 8},
+	{Offset: 67052544, Size: 8},
+	{Offset: 67053568, Size: 8},
+	{Offset: 67054592, Size: 8},
+	{Offset: 67055616, Size: 8},
+	{Offset: 67056640, Size: 8},
+	{Offset: 67057664, Size: 8},
+	{Offset: 67058688, Size: 8},
+	{Offset: 67059712, Size: 8},
+	{Offset: 67060736, Size: 8},
+	{Offset: 67061760, Size: 8},
+	{Offset: 67062784, Size: 8},
+	{Offset: 67063808, Size: 8},
+	{Offset: 67064832, Size: 8},
+	{Offset: 67065856, Size: 8},
+	{Offset: 67066880, Size: 8},
+	{Offset: 67067904, Size: 8},
+	{Offset: 67068928, Size: 8},
+	{Offset: 67069952, Size: 8},
+	{Offset: 67070976, Size: 8},
+	{Offset: 67072000, Size: 8},
+	{Offset: 67073024, Size: 8},
+	{Offset: 67074048, Size: 8},
+	{Offset: 67075072, Size: 8},
+	{Offset: 67076096, Size: 8},
+	{Offset: 67077120, Size: 8},
+	{Offset: 67078144, Size: 8},
+	{Offset: 67079168, Size: 8},
+	{Offset: 67080192, Size: 8},
+	{Offset: 67081216, Size: 8},
+	{Offset: 67082240, Size: 8},
+	{Offset: 67083264, Size: 8},
+	{Offset: 67084288, Size: 8},
+	{Offset: 67085312, Size: 8},
+	{Offset: 67086336, Size: 8},
+	{Offset: 67087360, Size: 8},
+	{Offset: 67088384, Size: 8},
+	{Offset: 67089408, Size: 8},
+	{Offset: 67090432, Size: 8},
+	{Offset: 67091456, Size: 8},
+	{Offset: 67092480, Size: 8},
+	{Offset: 67093504, Size: 8},
+	{Offset: 67094528, Size: 8},
+	{Offset: 67095552, Size: 8},
+	{Offset: 67096576, Size: 8},
+	{Offset: 67097600, Size: 8},
+	{Offset: 67098624, Size: 8},
+	{Offset: 67099648, Size: 8},
+	{Offset: 67100672, Size: 8},
+	{Offset: 67101696, Size: 8},
+	{Offset: 67102720, Size: 8},
+	{Offset: 67103744, Size: 8},
+	{Offset: 67104768, Size: 8},
+	{Offset: 67105792, Size: 8},
+	{Offset: 67106816, Size: 8},
+	{Offset: 67107840, Size: 8},
 }

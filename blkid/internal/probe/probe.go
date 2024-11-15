@@ -44,6 +44,8 @@ type Result struct {
 
 	Parts []Partition
 
+	ExtraSignatures []SignatureRange
+
 	BlockSize           uint32
 	FilesystemBlockSize uint32
 	ProbedSize          uint64
@@ -57,6 +59,12 @@ type Partition struct {
 
 	Index uint // 1-based index
 
+	Offset uint64
+	Size   uint64
+}
+
+// SignatureRange is a range of bytes for signature detection.
+type SignatureRange struct {
 	Offset uint64
 	Size   uint64
 }

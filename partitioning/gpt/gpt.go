@@ -157,7 +157,7 @@ func Read(dev Device, opts ...Option) (*Table, error) {
 	}
 
 	hdr, entries, err := gptstructs.ReadHeader(dev, 1, lastLBA)
-	if err != nil {
+	if err != nil && !errors.Is(err, gptstructs.ErrZeroedHeader) { // fallback to backup header if header is zeroed
 		return nil, err
 	}
 

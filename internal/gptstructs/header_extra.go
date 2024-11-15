@@ -5,6 +5,8 @@
 package gptstructs
 
 import (
+	"bytes"
+	"errors"
 	"hash/crc32"
 	"io"
 	"slices"
@@ -12,6 +14,9 @@ import (
 
 // HeaderSignature is the signature of the GPT header.
 const HeaderSignature = 0x5452415020494645 // "EFI PART"
+
+// ErrZeroedHeader is returned when the header is completely zeroed out.
+var ErrZeroedHeader = errors.New("zeroed out header")
 
 // CalculateChecksum calculates the checksum of the header.
 func (h Header) CalculateChecksum() uint32 {
@@ -40,6 +45,11 @@ func ReadHeader(r HeaderReader, lba, lastLBA uint64) (*Header, []Entry, error) {
 
 	if _, err := r.ReadAt(buf, int64(lba)*int64(sectorSize)); err != nil {
 		return nil, nil, err
+	}
+
+	// check for completely zeroed out header, and treat that as a special error
+	if bytes.Equal(buf, make([]byte, sectorSize)) {
+		return nil, nil, ErrZeroedHeader
 	}
 
 	hdr := Header(buf)

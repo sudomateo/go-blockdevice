@@ -18,6 +18,12 @@ const (
 	FastWipeRange = 1024 * 1024
 )
 
+// Range is a range of bytes.
+type Range struct {
+	Offset uint64
+	Size   uint64
+}
+
 // Wipe the device contents.
 //
 // In order of availability this tries to perform the following:
@@ -38,7 +44,10 @@ func (d *Device) Wipe() (string, error) {
 //
 // This method is much faster than Wipe(), but it doesn't guarantee
 // that device will be zeroed out completely.
-func (d *Device) FastWipe() error {
+//
+// If ranges are given, only those ranges will be wiped.
+// Otherwise, the first FastWipeRange and the last FastWipeRange bytes will be wiped.
+func (d *Device) FastWipe(ranges ...Range) error {
 	size, err := d.GetSize()
 	if err != nil {
 		return err
@@ -50,17 +59,28 @@ func (d *Device) FastWipe() error {
 	// ignoring the error here as DISCARD might be not supported by the device
 	unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKDISCARD, uintptr(unsafe.Pointer(&r[0]))) //nolint: errcheck
 
-	// zero out the first N bytes of the device to clear any partition table
-	wipeLength := min(size, uint64(FastWipeRange))
+	if len(ranges) == 0 {
+		// zero out the first N bytes of the device to clear any partition table
+		wipeLength := min(size, uint64(FastWipeRange))
 
-	_, err = d.WipeRange(0, wipeLength)
-	if err != nil {
-		return err
+		_, err = d.WipeRange(0, wipeLength)
+		if err != nil {
+			return err
+		}
+
+		// wipe the last FastWipeRange bytes of the device as well
+		if size >= FastWipeRange*2 {
+			_, err = d.WipeRange(size-FastWipeRange, FastWipeRange)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}
 
-	// wipe the last FastWipeRange bytes of the device as well
-	if size >= FastWipeRange*2 {
-		_, err = d.WipeRange(size-FastWipeRange, FastWipeRange)
+	for _, r := range ranges {
+		_, err = d.WipeRange(r.Offset, r.Size)
 		if err != nil {
 			return err
 		}
@@ -71,38 +91,54 @@ func (d *Device) FastWipe() error {
 
 // WipeRange the device [start, start+length).
 func (d *Device) WipeRange(start, length uint64) (string, error) {
-	r := [2]uint64{start, length}
+	// verify alignment before starting to use ioctl ways
+	if start&0x7ff == 0 && length&0x7ff == 0 {
+		r := [2]uint64{start, length}
 
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKSECDISCARD, uintptr(unsafe.Pointer(&r[0]))); errno == 0 {
-		runtime.KeepAlive(d)
-
-		return "blksecdiscard", nil
-	}
-
-	var zeroes int
-
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKDISCARDZEROES, uintptr(unsafe.Pointer(&zeroes))); errno == 0 && zeroes != 0 {
-		if _, _, errno = unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKDISCARD, uintptr(unsafe.Pointer(&r[0]))); errno == 0 {
+		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKSECDISCARD, uintptr(unsafe.Pointer(&r[0]))); errno == 0 {
 			runtime.KeepAlive(d)
 
-			return "blkdiscardzeros", nil
+			return "blksecdiscard", nil
+		}
+
+		var zeroes int
+
+		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKDISCARDZEROES, uintptr(unsafe.Pointer(&zeroes))); errno == 0 && zeroes != 0 {
+			if _, _, errno = unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKDISCARD, uintptr(unsafe.Pointer(&r[0]))); errno == 0 {
+				runtime.KeepAlive(d)
+
+				return "blkdiscardzeros", nil
+			}
+		}
+
+		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKZEROOUT, uintptr(unsafe.Pointer(&r[0]))); errno == 0 {
+			runtime.KeepAlive(d)
+
+			return "blkzeroout", nil
 		}
 	}
 
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, d.f.Fd(), unix.BLKZEROOUT, uintptr(unsafe.Pointer(&r[0]))); errno == 0 {
-		runtime.KeepAlive(d)
+	if length >= 65536 { // arbitrary threshold to use /dev/zero instead of allocating a zero slice
+		zero, err := os.Open("/dev/zero")
+		if err != nil {
+			return "", err
+		}
 
-		return "blkzeroout", nil
+		defer zero.Close() //nolint: errcheck
+
+		_, err = d.f.Seek(int64(start), io.SeekStart)
+		if err != nil {
+			return "", err
+		}
+
+		_, err = io.CopyN(d.f, zero, int64(length))
+
+		return "writezeroes", err
 	}
 
-	zero, err := os.Open("/dev/zero")
-	if err != nil {
-		return "", err
-	}
+	zeroes := make([]byte, length)
 
-	defer zero.Close() //nolint: errcheck
+	_, err := d.f.WriteAt(zeroes, int64(start))
 
-	_, err = io.CopyN(d.f, zero, int64(r[1]))
-
-	return "writezeroes", err
+	return "writezero", err
 }

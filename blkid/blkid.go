@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/probe"
 	"github.com/siderolabs/go-blockdevice/v2/block"
 )
 
@@ -51,10 +52,12 @@ type Info struct { //nolint:govet
 }
 
 // ProbeResult is a result of probing a single filesystem/partition.
-type ProbeResult struct { //nolint:govet
+type ProbeResult struct {
 	Name  string
 	UUID  *uuid.UUID
 	Label *string
+
+	SignatureRanges []SignatureRange
 
 	BlockSize           uint32
 	FilesystemBlockSize uint32
@@ -80,6 +83,9 @@ type NestedProbeResult struct { //nolint:govet
 
 	Parts []NestedProbeResult
 }
+
+// SignatureRange is a range of bytes for signature detection.
+type SignatureRange = probe.SignatureRange
 
 // ProbeOptions is the options for probing.
 type ProbeOptions struct {

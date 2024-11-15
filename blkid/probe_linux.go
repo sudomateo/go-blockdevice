@@ -44,21 +44,30 @@ func (i *Info) fillProbeResult(f *os.File, options ProbeOptions) error {
 		return nil
 	}
 
-	i.Name = matched.Name()
+	i.Name = matched.Prober.Name()
 	i.UUID = res.UUID
 	i.BlockSize = res.BlockSize
 	i.FilesystemBlockSize = res.FilesystemBlockSize
 	i.ProbedSize = res.ProbedSize
 	i.Label = res.Label
 
-	if err = i.fillNested(f, chain, 0, &i.Parts, res.Parts, options); err != nil {
+	if len(matched.Magic.Value) > 0 {
+		i.SignatureRanges = append(i.SignatureRanges, SignatureRange{
+			Offset: uint64(matched.Magic.Offset),
+			Size:   uint64(len(matched.Magic.Value)),
+		})
+	}
+
+	i.SignatureRanges = append(i.SignatureRanges, res.ExtraSignatures...)
+
+	if err = i.fillNested(f, chain, 0, &i.Parts, &i.SignatureRanges, res.Parts, options); err != nil {
 		return fmt.Errorf("error probing nested: %w", err)
 	}
 
 	return nil
 }
 
-func (i *Info) fillNested(f *os.File, chain chain.Chain, offset uint64, out *[]NestedProbeResult, parts []probe.Partition, options ProbeOptions) error {
+func (i *Info) fillNested(f *os.File, chain chain.Chain, offset uint64, out *[]NestedProbeResult, outSignatures *[]SignatureRange, parts []probe.Partition, options ProbeOptions) error {
 	if len(parts) == 0 {
 		return nil
 	}
@@ -83,14 +92,23 @@ func (i *Info) fillNested(f *os.File, chain chain.Chain, offset uint64, out *[]N
 			continue
 		}
 
-		(*out)[idx].Name = matched.Name()
+		(*out)[idx].Name = matched.Prober.Name()
 		(*out)[idx].UUID = res.UUID
 		(*out)[idx].BlockSize = res.BlockSize
 		(*out)[idx].FilesystemBlockSize = res.FilesystemBlockSize
 		(*out)[idx].ProbedSize = res.ProbedSize
 		(*out)[idx].Label = res.Label
 
-		if err = i.fillNested(f, chain, offset+part.Offset, &(*out)[idx].Parts, res.Parts, options); err != nil {
+		if len(matched.Magic.Value) > 0 {
+			*outSignatures = append(*outSignatures, SignatureRange{
+				Offset: offset + part.Offset + uint64(matched.Magic.Offset),
+				Size:   uint64(len(matched.Magic.Value)),
+			})
+		}
+
+		*outSignatures = append(*outSignatures, res.ExtraSignatures...)
+
+		if err = i.fillNested(f, chain, offset+part.Offset, &(*out)[idx].Parts, outSignatures, res.Parts, options); err != nil {
 			return fmt.Errorf("error probing nested: %w", err)
 		}
 	}
@@ -98,13 +116,13 @@ func (i *Info) fillNested(f *os.File, chain chain.Chain, offset uint64, out *[]N
 	return nil
 }
 
-func (i *Info) probe(f *os.File, chain chain.Chain, offset, length uint64, options ProbeOptions) (*probe.Result, probe.Prober, error) {
+func (i *Info) probe(f *os.File, chain chain.Chain, offset, length uint64, options ProbeOptions) (*probe.Result, probe.MagicMatch, error) {
 	if offset+length > i.Size {
-		return nil, nil, fmt.Errorf("probing range is out of bounds: offset %d + len %d > size %d", offset, length, i.Size)
+		return nil, probe.MagicMatch{}, fmt.Errorf("probing range is out of bounds: offset %d + len %d > size %d", offset, length, i.Size)
 	}
 
 	if length < uint64(chain.MaxMagicSize()) {
-		return nil, nil, fmt.Errorf("probing range is too small: len %d < max magic size %d", length, chain.MaxMagicSize())
+		return nil, probe.MagicMatch{}, fmt.Errorf("probing range is too small: len %d < max magic size %d", length, chain.MaxMagicSize())
 	}
 
 	magicReadSize := max(uint(chain.MaxMagicSize()), i.IOSize)
@@ -116,7 +134,7 @@ func (i *Info) probe(f *os.File, chain chain.Chain, offset, length uint64, optio
 	buf := make([]byte, magicReadSize)
 
 	if _, err := f.ReadAt(buf, int64(offset)); err != nil {
-		return nil, nil, fmt.Errorf("error reading magic buffer: %w", err)
+		return nil, probe.MagicMatch{}, fmt.Errorf("error reading magic buffer: %w", err)
 	}
 
 	pR := &probeReader{
@@ -139,8 +157,8 @@ func (i *Info) probe(f *os.File, chain chain.Chain, offset, length uint64, optio
 			continue
 		}
 
-		return res, matched.Prober, nil
+		return res, matched, nil
 	}
 
-	return nil, nil, nil
+	return nil, probe.MagicMatch{}, nil
 }

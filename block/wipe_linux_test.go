@@ -79,9 +79,17 @@ func TestDeviceWipe(t *testing.T) {
 
 	assertZeroed(t, f, 0, 1024)
 	assertZeroed(t, f, 2*GiB-1024, 1024)
+
+	_, err = f.WriteAt(magic, 0)
+	require.NoError(t, err)
+
+	require.NoError(t, devWhole.FastWipe(block.Range{Offset: 0, Size: 4}, block.Range{Offset: 2*GiB - 4, Size: 4}))
+
+	assertZeroed(t, f, 0, 4)
+	assertZeroed(t, f, 2*GiB-4, 4)
 }
 
-func assertZeroed(t *testing.T, f *os.File, offset, length int64) { //nolint:unparam
+func assertZeroed(t *testing.T, f *os.File, offset, length int64) {
 	t.Helper()
 
 	buf := make([]byte, length)
