@@ -24,6 +24,26 @@ const sbOffset = 0x400
 //
 //nolint:stylecheck,revive
 const (
+	EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER = 0x0001
+	EXT2_FEATURE_RO_COMPAT_LARGE_FILE   = 0x0002
+	EXT2_FEATURE_RO_COMPAT_BTREE_DIR    = 0x0004
+	EXT2_FEATURE_INCOMPAT_FILETYPE      = 0x0002
+	EXT2_FEATURE_INCOMPAT_META_BG       = 0x0010
+
+	EXT3_FEATURE_INCOMPAT_RECOVER     = 0x0004
+	EXT3_FEATURE_COMPAT_HAS_JOURNAL   = 0x0004
+	EXT3_FEATURE_INCOMPAT_JOURNAL_DEV = 0x0008
+
+	EXT2_FEATURE_RO_COMPAT_SUPP        = EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER | EXT2_FEATURE_RO_COMPAT_LARGE_FILE | EXT2_FEATURE_RO_COMPAT_BTREE_DIR
+	EXT2_FEATURE_INCOMPAT_SUPP         = EXT2_FEATURE_INCOMPAT_FILETYPE | EXT2_FEATURE_INCOMPAT_META_BG
+	EXT2_FEATURE_INCOMPAT_UNSUPPORTED  = ^uint32(EXT2_FEATURE_INCOMPAT_SUPP)
+	EXT2_FEATURE_RO_COMPAT_UNSUPPORTED = ^uint32(EXT2_FEATURE_RO_COMPAT_SUPP)
+
+	EXT3_FEATURE_RO_COMPAT_SUPP        = EXT2_FEATURE_RO_COMPAT_SPARSE_SUPER | EXT2_FEATURE_RO_COMPAT_LARGE_FILE | EXT2_FEATURE_RO_COMPAT_BTREE_DIR
+	EXT3_FEATURE_INCOMPAT_SUPP         = EXT2_FEATURE_INCOMPAT_FILETYPE | EXT3_FEATURE_INCOMPAT_RECOVER | EXT2_FEATURE_INCOMPAT_META_BG
+	EXT3_FEATURE_INCOMPAT_UNSUPPORTED  = ^uint32(EXT3_FEATURE_INCOMPAT_SUPP)
+	EXT3_FEATURE_RO_COMPAT_UNSUPPORTED = ^uint32(EXT3_FEATURE_RO_COMPAT_SUPP)
+
 	EXT4_FEATURE_RO_COMPAT_METADATA_CSUM = 0x0400
 )
 
@@ -32,21 +52,14 @@ var extfsMagic = magic.Magic{
 	Value:  []byte("\123\357"),
 }
 
-// Probe for the filesystem.
-type Probe struct{}
+type probeCommon struct{}
 
 // Magic returns the magic value for the filesystem.
-func (p *Probe) Magic() []*magic.Magic {
+func (p *probeCommon) Magic() []*magic.Magic {
 	return []*magic.Magic{&extfsMagic}
 }
 
-// Name returns the name of the xfs filesystem.
-func (p *Probe) Name() string {
-	return "extfs"
-}
-
-// Probe runs the further inspection and returns the result if successful.
-func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
+func (p *probeCommon) readSuperblock(r probe.Reader) (SuperBlock, error) {
 	buf := make([]byte, SUPERBLOCK_SIZE)
 
 	if _, err := r.ReadAt(buf, sbOffset); err != nil {
@@ -59,10 +72,14 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 		csum := utils.CRC32c(buf[:1020])
 
 		if csum != sb.Get_s_checksum() {
-			return nil, nil //nolint:nilnil
+			return nil, nil
 		}
 	}
 
+	return sb, nil
+}
+
+func (p *probeCommon) buildResult(sb SuperBlock) (*probe.Result, error) {
 	uuid, err := uuid.FromBytes(sb.Get_s_uuid())
 	if err != nil {
 		return nil, err

@@ -58,7 +58,9 @@ func (chain Chain) MagicMatches(buf []byte) []probe.MagicMatch {
 func Default() Chain {
 	return Chain{
 		&xfs.Probe{},
-		&ext.Probe{},
+		&ext.Probe4{},
+		&ext.Probe3{},
+		&ext.Probe2{},
 		&vfat.Probe{},
 		&swap.Probe{},
 		&lvm2.Probe{},

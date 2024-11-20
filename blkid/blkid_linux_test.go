@@ -53,7 +53,27 @@ func xfsSetup(t *testing.T, path string) {
 	require.NoError(t, cmd.Run())
 }
 
-func extfsSetup(t *testing.T, path string) {
+func ext2Setup(t *testing.T, path string) {
+	t.Helper()
+
+	cmd := exec.Command("mkfs.ext2", "-L", "extlabel", path)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	require.NoError(t, cmd.Run())
+}
+
+func ext3Setup(t *testing.T, path string) {
+	t.Helper()
+
+	cmd := exec.Command("mkfs.ext3", "-L", "extlabel", path)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	require.NoError(t, cmd.Run())
+}
+
+func ext4Setup(t *testing.T, path string) {
 	t.Helper()
 
 	cmd := exec.Command("mkfs.ext4", "-L", "extlabel", path)
@@ -251,12 +271,46 @@ func TestProbePathFilesystems(t *testing.T) {
 			},
 		},
 		{
-			name: "extfs",
+			name: "ext2",
 
 			size:  500 * MiB,
-			setup: extfsSetup,
+			setup: ext2Setup,
 
-			expectedName:  "extfs",
+			expectedName:  "ext2",
+			expectedLabel: "extlabel",
+			expectUUID:    true,
+
+			expectedBlockSize:   []uint32{1024, 4096},
+			expectedFSBlockSize: []uint32{1024, 4096},
+			expectedFSSize:      500 * MiB,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 1080, Size: 2},
+			},
+		},
+		{
+			name: "ext3",
+
+			size:  500 * MiB,
+			setup: ext3Setup,
+
+			expectedName:  "ext3",
+			expectedLabel: "extlabel",
+			expectUUID:    true,
+
+			expectedBlockSize:   []uint32{1024, 4096},
+			expectedFSBlockSize: []uint32{1024, 4096},
+			expectedFSSize:      500 * MiB,
+			expectedSignatures: []blkid.SignatureRange{
+				{Offset: 1080, Size: 2},
+			},
+		},
+		{
+			name: "ext4",
+
+			size:  500 * MiB,
+			setup: ext4Setup,
+
+			expectedName:  "ext4",
 			expectedLabel: "extlabel",
 			expectUUID:    true,
 
@@ -834,7 +888,7 @@ func setupNestedGPT(t *testing.T, path string) {
 	require.NoError(t, exec.Command("partprobe", path).Run())
 
 	vfatSetup(t, path+"p1")
-	extfsSetup(t, path+"p3")
+	ext4Setup(t, path+"p3")
 	xfsSetup(t, path+"p6")
 }
 
@@ -949,7 +1003,7 @@ func TestProbePathNested(t *testing.T) {
 			assert.Equal(t, blkid.ProbeResult{}, info.Parts[1].ProbeResult)
 
 			// BOOT: ext4
-			assert.Equal(t, "extfs", info.Parts[2].Name)
+			assert.Equal(t, "ext4", info.Parts[2].Name)
 			assert.Contains(t, []uint32{1024, 4096}, info.Parts[2].BlockSize)
 			assert.Contains(t, []uint32{1024, 4096}, info.Parts[2].FilesystemBlockSize)
 			assert.EqualValues(t, 1000*MiB, info.Parts[2].ProbedSize)
