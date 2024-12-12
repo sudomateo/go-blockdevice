@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -83,14 +84,16 @@ func ext4Setup(t *testing.T, path string) {
 	require.NoError(t, cmd.Run())
 }
 
-func vfatSetup(t *testing.T, path string) {
-	t.Helper()
+func vfatSetup(bits int) func(t *testing.T, path string) {
+	return func(t *testing.T, path string) {
+		t.Helper()
 
-	cmd := exec.Command("mkfs.vfat", "-v", path)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+		cmd := exec.Command("mkfs.vfat", "-F", strconv.Itoa(bits), "-n", "TALOS_V1", "-v", path)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 
-	require.NoError(t, cmd.Run())
+		require.NoError(t, cmd.Run())
+	}
 }
 
 func luksSetup(t *testing.T, path string) {
@@ -325,7 +328,7 @@ func TestProbePathFilesystems(t *testing.T) {
 			name: "vfat small",
 
 			size:  100 * MiB,
-			setup: vfatSetup,
+			setup: vfatSetup(16),
 
 			expectedName:        "vfat",
 			expectedBlockSize:   []uint32{512},
@@ -334,20 +337,22 @@ func TestProbePathFilesystems(t *testing.T) {
 			expectedSignatures: []blkid.SignatureRange{
 				{Offset: 54, Size: 8},
 			},
+			expectedLabel: "TALOS_V1",
 		},
 		{
 			name: "vfat big",
 
 			size:  500 * MiB,
-			setup: vfatSetup,
+			setup: vfatSetup(32),
 
 			expectedName:        "vfat",
 			expectedBlockSize:   []uint32{512},
-			expectedFSBlockSize: []uint32{8192},
+			expectedFSBlockSize: []uint32{4096},
 			expectedFSSize:      524256768,
 			expectedSignatures: []blkid.SignatureRange{
-				{Offset: 54, Size: 8},
+				{Offset: 82, Size: 8},
 			},
+			expectedLabel: "TALOS_V1",
 		},
 		{
 			name: "luks",
@@ -887,7 +892,7 @@ func setupNestedGPT(t *testing.T, path string) {
 
 	require.NoError(t, exec.Command("partprobe", path).Run())
 
-	vfatSetup(t, path+"p1")
+	vfatSetup(16)(t, path+"p1")
 	ext4Setup(t, path+"p3")
 	xfsSetup(t, path+"p6")
 }
@@ -1066,7 +1071,7 @@ func setupOurGPT(t *testing.T, path string, createFilesystems bool) {
 	require.NoError(t, part.Write())
 
 	if createFilesystems {
-		vfatSetup(t, path+"p1")
+		vfatSetup(16)(t, path+"p1")
 		xfsSetup(t, path+"p3")
 		xfsSetup(t, path+"p5")
 		xfsSetup(t, path+"p6")

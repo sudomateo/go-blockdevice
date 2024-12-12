@@ -9,7 +9,12 @@ package vfat
 
 //go:generate go run ../../../../internal/cstruct/cstruct.go -pkg vfat -struct VFATSB -input vfat.h -endianness LittleEndian
 
+//go:generate go run ../../../../internal/cstruct/cstruct.go -pkg vfat -struct DirEntry -input direntry.h -endianness LittleEndian
+
 import (
+	"encoding/binary"
+	"strings"
+
 	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/magic"
 	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/probe"
 	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/utils"
@@ -83,7 +88,9 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 	vfatSB := VFATSB(vfatBuf)
 	msdosSB := MSDOSSB(msdosBuf)
 
-	if !isValid(msdosSB) {
+	fatSize, valid := isValid(msdosSB, vfatSB)
+
+	if !valid {
 		return nil, nil //nolint:nilnil
 	}
 
@@ -94,39 +101,139 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 
 	sectorSize := uint32(msdosSB.Get_ms_sector_size())
 
+	var label *string
+
+	if msdosSB.Get_ms_fat_length() > 0 {
+		rootStart := int64(uint32(msdosSB.Get_ms_reserved())+fatSize) * int64(sectorSize)
+		rootDirEntries := uint32(vfatSB.Get_vs_dir_entries())
+
+		dosLabel, err := p.searchFATLabel(r, rootStart, rootDirEntries)
+		if err == nil {
+			dosLabel = strings.TrimRight(dosLabel, " ")
+
+			label = &dosLabel
+		}
+	} else if vfatSB.Get_vs_fat32_length() > 0 {
+		maxLoops := 100
+
+		// search the FAT32 root dir for the label attribute
+		bufSize := uint32(vfatSB.Get_vs_cluster_size()) * sectorSize
+		buf := make([]byte, bufSize)
+		startDataSector := uint32(msdosSB.Get_ms_reserved()) + fatSize
+		entries := uint32((uint64(vfatSB.Get_vs_fat32_length()) * uint64(sectorSize)) / 4)
+		next := vfatSB.Get_vs_root_cluster()
+
+		for next >= 2 && next < entries && maxLoops > 0 {
+			nextSectOff := (next - 2) * uint32(vfatSB.Get_vs_cluster_size())
+			nextOff := uint64(startDataSector+nextSectOff) * uint64(sectorSize)
+
+			count := bufSize / DIRENTRY_SIZE
+
+			vfatLabel, err := p.searchFATLabel(r, int64(nextOff), count)
+			if err == nil {
+				vfatLabel = strings.TrimRight(vfatLabel, " ")
+				label = &vfatLabel
+
+				break
+			}
+
+			// get FAT entry
+			fatEntryOff := ((uint64(msdosSB.Get_ms_reserved()) * uint64(sectorSize)) + (uint64(next) * 4))
+
+			if _, err := r.ReadAt(buf, int64(fatEntryOff)); err != nil {
+				// ignore error
+				break
+			}
+
+			// set next cluster
+			next = binary.LittleEndian.Uint32(buf) & 0x0fffffff
+		}
+	}
+
 	res := &probe.Result{
 		BlockSize:           sectorSize,
 		FilesystemBlockSize: uint32(vfatSB.Get_vs_cluster_size()) * sectorSize,
 		ProbedSize:          uint64(sectorCount) * uint64(sectorSize),
+		Label:               label,
 	}
 
-	return res, nil
+	return res, nil //nolint:nilerr
 }
 
-func isValid(msdosSB MSDOSSB) bool {
+func isValid(msdosSB MSDOSSB, vfatSB VFATSB) (uint32, bool) {
 	if msdosSB.Get_ms_fats() == 0 {
-		return false
+		return 0, false
 	}
 
 	if msdosSB.Get_ms_reserved() == 0 {
-		return false
+		return 0, false
 	}
 
 	if !(0xf8 <= msdosSB.Get_ms_media() || msdosSB.Get_ms_media() == 0xf0) {
-		return false
+		return 0, false
 	}
 
 	if !utils.IsPowerOf2(msdosSB.Get_ms_cluster_size()) {
-		return false
+		return 0, false
 	}
 
 	if !utils.IsPowerOf2(msdosSB.Get_ms_sector_size()) {
-		return false
+		return 0, false
 	}
 
 	if msdosSB.Get_ms_sector_size() < 512 || msdosSB.Get_ms_sector_size() > 4096 {
-		return false
+		return 0, false
 	}
 
-	return true
+	fatLength := uint32(msdosSB.Get_ms_fat_length())
+	if fatLength == 0 {
+		fatLength = vfatSB.Get_vs_fat32_length()
+	}
+
+	fatSize := fatLength * uint32(msdosSB.Get_ms_fats())
+
+	return fatSize, true
+}
+
+// FAT directory constants.
+//
+//nolint:revive,stylecheck
+const (
+	FAT_ENTRY_FREE     = 0xe5
+	FAT_ATTR_LONG_NAME = 0x0f
+	FAT_ATTR_MASK      = 0x3f
+	FAT_ATTR_VOLUME_ID = 0x08
+	FAT_ATTR_DIR       = 0x10
+)
+
+func (p *Probe) searchFATLabel(r probe.Reader, offset int64, entries uint32) (string, error) {
+	buf := make([]byte, entries*DIRENTRY_SIZE)
+
+	if _, err := r.ReadAt(buf, offset); err != nil {
+		return "", err
+	}
+
+	for i := range entries {
+		dir := DirEntry(buf[i*DIRENTRY_SIZE : (i+1)*DIRENTRY_SIZE])
+
+		if dir.Get_name()[0] == 0x00 {
+			break
+		}
+
+		if dir.Get_name()[0] == FAT_ENTRY_FREE || dir.Get_cluster_high() != 0 || dir.Get_cluster_low() != 0 || (dir.Get_attr()&FAT_ATTR_MASK) == FAT_ATTR_LONG_NAME {
+			continue
+		}
+
+		if (dir.Get_attr() & (FAT_ATTR_VOLUME_ID | FAT_ATTR_DIR)) == FAT_ATTR_VOLUME_ID {
+			label := string(dir.Get_name())
+
+			if label[0] == 0x05 {
+				label = "\xe5" + label[1:]
+			}
+
+			return label, nil
+		}
+	}
+
+	return "", nil
 }

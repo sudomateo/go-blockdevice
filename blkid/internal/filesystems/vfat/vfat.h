@@ -7,7 +7,7 @@ struct vfat_super_block {
 /* 0d*/	uint8_t		vs_cluster_size;
 /* 0e*/	uint16_t	vs_reserved;
 /* 10*/	uint8_t		vs_fats;
-/* 11*/	unsigned char	vs_dir_entries[2];
+/* 11*/	uint16_t	vs_dir_entries;
 /* 13*/	unsigned char	vs_sectors[2];
 /* 15*/	unsigned char	vs_media;
 /* 16*/	uint16_t	vs_fat_length;

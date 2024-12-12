@@ -74,13 +74,13 @@ func (s VFATSB) Put_vs_fats(v byte) {
 }
 
 // Get_vs_dir_entries returns vs_dir_entries.
-func (s VFATSB) Get_vs_dir_entries() []byte {
-	return s[17:19]
+func (s VFATSB) Get_vs_dir_entries() uint16 {
+	return binary.LittleEndian.Uint16(s[17:19])
 }
 
 // Put_vs_dir_entries sets vs_dir_entries.
-func (s VFATSB) Put_vs_dir_entries(v []byte) {
-	copy(s[17:19], v)
+func (s VFATSB) Put_vs_dir_entries(v uint16) {
+	binary.LittleEndian.PutUint16(s[17:19], v)
 }
 
 // Get_vs_sectors returns vs_sectors.
