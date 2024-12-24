@@ -5,6 +5,7 @@
 package block
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -82,7 +83,7 @@ func (d *Device) FastWipe(ranges ...Range) error {
 	for _, r := range ranges {
 		_, err = d.WipeRange(r.Offset, r.Size)
 		if err != nil {
-			return err
+			return fmt.Errorf("error wiping %d:+%d: %w", r.Offset, r.Size, err)
 		}
 	}
 
@@ -91,6 +92,10 @@ func (d *Device) FastWipe(ranges ...Range) error {
 
 // WipeRange the device [start, start+length).
 func (d *Device) WipeRange(start, length uint64) (string, error) {
+	if length == 0 {
+		return "noop", nil
+	}
+
 	// verify alignment before starting to use ioctl ways
 	if start&0x7ff == 0 && length&0x7ff == 0 {
 		r := [2]uint64{start, length}

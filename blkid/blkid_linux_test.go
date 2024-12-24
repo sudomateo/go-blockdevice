@@ -595,6 +595,18 @@ func TestProbePathFilesystems(t *testing.T) {
 					assert.Equal(t, test.expectedFSSize, info.ProbedSize)
 
 					assert.Equal(t, test.expectedSignatures, info.SignatureRanges)
+
+					// now try wiping if using loop
+					if !useLoopDevice {
+						return
+					}
+
+					fastWipeBySignatures(t, probePath, info)
+
+					info, err = blkid.ProbePath(probePath, blkid.WithProbeLogger(logger))
+					require.NoError(t, err)
+
+					assert.Empty(t, info.Name)
 				})
 			})
 		}
@@ -621,6 +633,56 @@ size=      204800, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=7F5FCD6C-A703
 	cmd.Stderr = os.Stderr
 
 	require.NoError(t, cmd.Run())
+}
+
+func setupOverwrittenGPT(t *testing.T, path string) {
+	t.Helper()
+
+	// first, setup GPT covering whole disk
+	setupGPT(t, path)
+
+	// now, create a small GPT image
+	tmpDir := t.TempDir()
+
+	rawImage := filepath.Join(tmpDir, "image.raw")
+
+	f, err := os.Create(rawImage)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Truncate(512*MiB))
+	require.NoError(t, f.Close())
+
+	script := strings.TrimSpace(`
+label: gpt
+label-id: DDDA0816-8B53-47BF-A813-9EBB1F73AAA2
+size=      204800, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=3C047FF8-E35C-4918-A061-B4C1E5A291E5, name="TEST1"
+					type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=0F06E81A-E78D-426B-A078-30A01AAB3FB7, name="TEST2"
+	`)
+
+	cmd := exec.Command("sfdisk", rawImage)
+	cmd.Stdin = strings.NewReader(script)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	require.NoError(t, cmd.Run())
+
+	// now, copy over small image into the destination
+	in, err := os.Open(rawImage)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		assert.NoError(t, in.Close())
+	})
+
+	out, err := os.OpenFile(path, os.O_WRONLY, 0)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		assert.NoError(t, out.Close())
+	})
+
+	_, err = io.Copy(out, in)
+	require.NoError(t, err)
 }
 
 func corruptGPT(f func(*testing.T, string)) func(*testing.T, string) {
@@ -725,6 +787,7 @@ var expectedParts = []blkid.NestedProbeResult{
 	},
 }
 
+//nolint:gocognit
 func TestProbePathGPT(t *testing.T) {
 	for _, test := range []struct { //nolint:govet
 		name string
@@ -732,6 +795,7 @@ func TestProbePathGPT(t *testing.T) {
 		size  uint64
 		setup func(*testing.T, string)
 
+		expectedSize       uint64
 		expectedUUID       uuid.UUID
 		expectedParts      []blkid.NestedProbeResult
 		expectedSignatures []blkid.SignatureRange
@@ -742,6 +806,7 @@ func TestProbePathGPT(t *testing.T) {
 			size:  2 * GiB,
 			setup: setupGPT,
 
+			expectedSize:  2 * GiB,
 			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
 			expectedParts: expectedParts,
 			expectedSignatures: []blkid.SignatureRange{
@@ -761,6 +826,7 @@ func TestProbePathGPT(t *testing.T) {
 			size:  2 * GiB,
 			setup: corruptGPT(setupGPT),
 
+			expectedSize:  2 * GiB,
 			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
 			expectedParts: expectedParts,
 			expectedSignatures: []blkid.SignatureRange{
@@ -770,6 +836,47 @@ func TestProbePathGPT(t *testing.T) {
 				},
 				{
 					Offset: 2147483136,
+					Size:   512,
+				},
+			},
+		},
+		{
+			name: "overwritten GPT",
+
+			size:  2 * GiB,
+			setup: setupOverwrittenGPT,
+
+			expectedSize: 512 * MiB,
+			expectedUUID: uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
+			expectedParts: []blkid.NestedProbeResult{
+				{
+					NestedResult: blkid.NestedResult{
+						PartitionUUID:   pointer.To(uuid.MustParse("3C047FF8-E35C-4918-A061-B4C1E5A291E5")),
+						PartitionType:   pointer.To(uuid.MustParse("C12A7328-F81F-11D2-BA4B-00A0C93EC93B")),
+						PartitionLabel:  pointer.To("TEST1"),
+						PartitionIndex:  1,
+						PartitionOffset: 1 * MiB,
+						PartitionSize:   100 * MiB,
+					},
+				},
+				{
+					NestedResult: blkid.NestedResult{
+						PartitionUUID:   pointer.To(uuid.MustParse("0F06E81A-E78D-426B-A078-30A01AAB3FB7")),
+						PartitionType:   pointer.To(uuid.MustParse("0FC63DAF-8483-4772-8E79-3D69D8477DE4")),
+						PartitionLabel:  pointer.To("TEST2"),
+						PartitionIndex:  2,
+						PartitionOffset: 101 * MiB,
+						PartitionSize:   410 * MiB,
+					},
+				},
+			},
+			expectedSignatures: []blkid.SignatureRange{
+				{
+					Offset: 512,
+					Size:   512,
+				},
+				{
+					Offset: 536870400,
 					Size:   512,
 				},
 			},
@@ -827,7 +934,7 @@ func TestProbePathGPT(t *testing.T) {
 
 					assert.Equal(t, "gpt", info.Name)
 					assert.EqualValues(t, block.DefaultBlockSize, info.BlockSize)
-					assert.Equal(t, test.size-1*MiB-33*block.DefaultBlockSize, info.ProbedSize)
+					assert.Equal(t, test.expectedSize-1*MiB-33*block.DefaultBlockSize, info.ProbedSize)
 
 					require.NotNil(t, info.UUID)
 					assert.Equal(t, test.expectedUUID, *info.UUID)
@@ -835,6 +942,19 @@ func TestProbePathGPT(t *testing.T) {
 					assert.Equal(t, test.expectedSignatures, info.SignatureRanges)
 
 					assert.Equal(t, test.expectedParts, info.Parts)
+
+					// now try wiping if using loop
+					if !useLoopDevice {
+						return
+					}
+
+					fastWipeBySignatures(t, probePath, info)
+
+					info, err = blkid.ProbePath(probePath, blkid.WithProbeLogger(logger))
+					require.NoError(t, err)
+
+					assert.Empty(t, info.Name)
+					assert.Empty(t, info.Parts)
 				})
 			})
 		}
@@ -1213,6 +1333,24 @@ func TestProbePathOurGPT(t *testing.T) {
 	}
 }
 
+func fastWipeBySignatures(t *testing.T, path string, info *blkid.Info) {
+	t.Helper()
+
+	blk, err := block.NewFromPath(path, block.OpenForWrite())
+	require.NoError(t, err)
+
+	require.NoError(t, blk.Lock(true))
+
+	require.NoError(t, blk.FastWipe(xslices.Map(info.SignatureRanges,
+		func(r blkid.SignatureRange) block.Range {
+			return block.Range(r)
+		},
+	)...))
+
+	require.NoError(t, blk.Unlock())
+	require.NoError(t, blk.Close())
+}
+
 func TestProbeWithWipeRanges(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("test requires root privileges")
@@ -1254,19 +1392,7 @@ func TestProbeWithWipeRanges(t *testing.T) {
 	}
 
 	// wipe by probed ranges
-	blk, err := block.NewFromPath(probePath, block.OpenForWrite())
-	require.NoError(t, err)
-
-	require.NoError(t, blk.Lock(true))
-
-	require.NoError(t, blk.FastWipe(xslices.Map(info.SignatureRanges,
-		func(r blkid.SignatureRange) block.Range {
-			return block.Range(r)
-		},
-	)...))
-
-	require.NoError(t, blk.Unlock())
-	require.NoError(t, blk.Close())
+	fastWipeBySignatures(t, probePath, info)
 
 	// probe again
 	info, err = blkid.ProbePath(probePath, blkid.WithProbeLogger(logger))

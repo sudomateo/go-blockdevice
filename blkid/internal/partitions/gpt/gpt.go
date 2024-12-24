@@ -63,6 +63,12 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 		if err != nil && !errors.Is(err, gptstructs.ErrZeroedHeader) { // skip zeroed out backup headers
 			return nil, err
 		}
+
+		if hdr != nil {
+			lastLBA = hdr.Get_my_lba()
+		}
+	} else {
+		lastLBA = hdr.Get_alternate_lba()
 	}
 
 	if hdr == nil {

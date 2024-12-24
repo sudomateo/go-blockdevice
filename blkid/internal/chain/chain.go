@@ -64,12 +64,13 @@ func Default() Chain {
 		&vfat.Probe{},
 		&swap.Probe{},
 		&lvm2.Probe{},
-		&gpt.Probe{},
 		&zfs.Probe{},
 		&squashfs.Probe{},
 		&talosmeta.Probe{},
 		&luks.Probe{},
 		&iso9660.Probe{},
 		&bluestore.Probe{},
+		// keep GPT last, as if GPT is overwritten with smaller filesystem image, it should be detected first
+		&gpt.Probe{},
 	}
 }
