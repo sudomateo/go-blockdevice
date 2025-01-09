@@ -262,10 +262,11 @@ func (t *Table) init(lastLBA uint64) {
 		ioSize = t.sectorSize
 	}
 
-	alignmentSize := max(ioSize, 2048*512)
-	t.alignment = uint64((alignmentSize + t.sectorSize - 1) / t.sectorSize)
+	alignmentSize := max(ioSize, 1048576)                                   // align to 1Mib minimum
+	t.alignment = uint64((alignmentSize + t.sectorSize - 1) / t.sectorSize) // 2048 with 512 sector size, 256 with 4096 sector size
 
-	t.firstUsableLBA = (t.firstUsableLBA + t.alignment - 1) / t.alignment * t.alignment
+	t.firstUsableLBA = (t.firstUsableLBA + t.alignment - 1) / t.alignment * t.alignment // 2048 with 512 sector size, 256 with 4096 sector size
+	t.firstUsableLBA = max(t.firstUsableLBA, 1024)                                      // make first usable LBA at least 1024 to avoid issues with some BIOSes
 }
 
 // Clear the partition table.
