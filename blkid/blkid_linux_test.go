@@ -708,6 +708,16 @@ func corruptGPT(f func(*testing.T, string)) func(*testing.T, string) {
 	}
 }
 
+func gptOverwritesFilesystem(f func(*testing.T, string)) func(*testing.T, string) {
+	return func(t *testing.T, path string) {
+		t.Helper()
+
+		f(t, path)
+
+		setupGPT(t, path)
+	}
+}
+
 func wipe1MB(f func(*testing.T, string)) func(*testing.T, string) {
 	return func(t *testing.T, path string) {
 		t.Helper()
@@ -805,6 +815,26 @@ func TestProbePathGPT(t *testing.T) {
 
 			size:  2 * GiB,
 			setup: setupGPT,
+
+			expectedSize:  2 * GiB,
+			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
+			expectedParts: expectedParts,
+			expectedSignatures: []blkid.SignatureRange{
+				{
+					Offset: 512,
+					Size:   512,
+				},
+				{
+					Offset: 2147483136,
+					Size:   512,
+				},
+			},
+		},
+		{
+			name: "GPT overwrites ZFS",
+
+			size:  2 * GiB,
+			setup: gptOverwritesFilesystem(zfsSetup),
 
 			expectedSize:  2 * GiB,
 			expectedUUID:  uuid.MustParse("DDDA0816-8B53-47BF-A813-9EBB1F73AAA2"),
