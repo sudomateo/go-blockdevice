@@ -93,6 +93,8 @@ type ProbeOptions struct {
 	Logger *zap.Logger
 	// SkipLocking blockdevices in shared mode.
 	SkipLocking bool
+	// SectorSize is the sector size to use for probing.
+	SectorSize uint
 }
 
 // ProbeOption is an option for probing.
@@ -112,9 +114,19 @@ func WithSkipLocking(skip bool) ProbeOption {
 	}
 }
 
+// WithSectorSize sets the sector size to use for probing.
+//
+// This is useful when probing a file that is not a blockdevice.
+func WithSectorSize(sectorSize uint) ProbeOption {
+	return func(o *ProbeOptions) {
+		o.SectorSize = sectorSize
+	}
+}
+
 func applyProbeOptions(opts ...ProbeOption) ProbeOptions {
 	o := ProbeOptions{
-		Logger: zap.NewNop(),
+		Logger:     zap.NewNop(),
+		SectorSize: block.DefaultBlockSize,
 	}
 
 	for _, opt := range opts {

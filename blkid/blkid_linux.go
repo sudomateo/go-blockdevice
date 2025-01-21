@@ -82,8 +82,8 @@ func Probe(f *os.File, opts ...ProbeOption) (*Info, error) {
 	case unix.S_IFREG:
 		// regular file (an image?), so use different settings
 		info.Size = uint64(st.Size())
-		info.IOSize = block.DefaultBlockSize
-		info.SectorSize = block.DefaultBlockSize
+		info.SectorSize = options.SectorSize
+		info.IOSize = info.SectorSize
 	default:
 		return nil, fmt.Errorf("unsupported file type: %s", st.Mode().Type())
 	}
