@@ -344,10 +344,15 @@ func (d *Device) GetProperties() (*DeviceProperties, error) {
 		Serial:   readSysFsFile(filepath.Join(sysFsPath, "serial")),
 		Modalias: readSysFsFile(filepath.Join(sysFsPath, "device", "modalias")),
 		WWID:     readSysFsFile(filepath.Join(sysFsPath, "wwid")),
+		UUID:     readSysFsFile(filepath.Join(sysFsPath, "uuid")),
 	}
 
 	if props.WWID == "" {
 		props.WWID = readSysFsFile(filepath.Join(sysFsPath, "device", "wwid"))
+	}
+
+	if props.UUID == "" {
+		props.UUID = readSysFsFile(filepath.Join(sysFsPath, "device", "uuid"))
 	}
 
 	if props.Serial == "" {

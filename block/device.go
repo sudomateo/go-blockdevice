@@ -52,6 +52,7 @@ type DeviceProperties struct {
 	// WWID /sys/block/<dev>/wwid.
 	WWID string
 	// UUID /sys/block/<dev>/uuid.
+	UUID string
 	// BusPath PCI bus path.
 	BusPath string
 	// SubSystem is the dest path of symlink /sys/block/<dev>/subsystem.
