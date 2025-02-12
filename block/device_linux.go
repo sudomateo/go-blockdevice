@@ -404,11 +404,11 @@ func (d *Device) getTransport(sysFsPath, deviceName string) string {
 	}
 
 	switch {
-	case isScsiHost(host, "sas"):
-		return "sas"
+	case isScsiHost(host, "spi"):
+		return "spi"
 	case isScsiHost(host, "fc"):
 		return "fc"
-	case isScsiHost(host, "sas") && scsiHasAttribute(devicePath, "sas_device"):
+	case isScsiHost(host, "sas") || scsiHasAttribute(devicePath, "sas_device"):
 		return "sas"
 	case scsiHasAttribute(devicePath, "ieee1394_id"):
 		return "ibp"
@@ -426,6 +426,8 @@ func (d *Device) getTransport(sysFsPath, deviceName string) string {
 			return "ata"
 		case procName == "virtio_scsi":
 			return "virtio"
+		default:
+			return procName
 		}
 	}
 
