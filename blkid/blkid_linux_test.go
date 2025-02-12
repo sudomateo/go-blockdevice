@@ -821,8 +821,8 @@ func TestProbePathGPT(t *testing.T) {
 			expectedParts: expectedParts,
 			expectedSignatures: []blkid.SignatureRange{
 				{
-					Offset: 512,
-					Size:   512,
+					Offset: 0,
+					Size:   1024,
 				},
 				{
 					Offset: 2147483136,
@@ -841,8 +841,8 @@ func TestProbePathGPT(t *testing.T) {
 			expectedParts: expectedParts,
 			expectedSignatures: []blkid.SignatureRange{
 				{
-					Offset: 512,
-					Size:   512,
+					Offset: 0,
+					Size:   1024,
 				},
 				{
 					Offset: 2147483136,
@@ -861,8 +861,8 @@ func TestProbePathGPT(t *testing.T) {
 			expectedParts: expectedParts,
 			expectedSignatures: []blkid.SignatureRange{
 				{
-					Offset: 512,
-					Size:   512,
+					Offset: 0,
+					Size:   1024,
 				},
 				{
 					Offset: 2147483136,
@@ -902,8 +902,8 @@ func TestProbePathGPT(t *testing.T) {
 			},
 			expectedSignatures: []blkid.SignatureRange{
 				{
-					Offset: 512,
-					Size:   512,
+					Offset: 0,
+					Size:   1024,
 				},
 				{
 					Offset: 536870400,
@@ -1074,8 +1074,8 @@ func TestProbePathNested(t *testing.T) {
 			expectedParts: expectedParts,
 			expectedSignatures: []blkid.SignatureRange{
 				{
-					Offset: 512,
-					Size:   512,
+					Offset: 0,
+					Size:   1024,
 				},
 				{
 					Offset: 2147483136,

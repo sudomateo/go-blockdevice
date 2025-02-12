@@ -91,8 +91,8 @@ func (p *Probe) Probe(r probe.Reader, _ magic.Magic) (*probe.Result, error) {
 
 		ExtraSignatures: []probe.SignatureRange{
 			{
-				Offset: primaryLBA * uint64(sectorSize),
-				Size:   uint64(sectorSize),
+				Offset: 0, // wipe both (P)MBR and first LBA with GPT header
+				Size:   2 * uint64(sectorSize),
 			},
 			{
 				Offset: lastLBA * uint64(sectorSize),
