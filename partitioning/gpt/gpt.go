@@ -393,14 +393,23 @@ func (t *Table) AllocatePartition(size uint64, name string, partType uuid.UUID, 
 	}
 
 	if smallestRange.partitionIdx > 0 && t.entries[smallestRange.partitionIdx-1] == nil {
-		t.entries[smallestRange.partitionIdx-1] = entry
-	} else {
-		t.entries = slices.Insert(
-			t.entries,
-			smallestRange.partitionIdx,
-			entry,
-		)
+		// find the smallest non-empty partition
+		newPartitionIdx := smallestRange.partitionIdx - 1
+
+		for newPartitionIdx > 0 && t.entries[newPartitionIdx-1] == nil {
+			newPartitionIdx--
+		}
+
+		t.entries[newPartitionIdx] = entry
+
+		return newPartitionIdx + 1, *entry, nil
 	}
+
+	t.entries = slices.Insert(
+		t.entries,
+		smallestRange.partitionIdx,
+		entry,
+	)
 
 	return smallestRange.partitionIdx + 1, *entry, nil
 }

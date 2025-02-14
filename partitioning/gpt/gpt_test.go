@@ -80,8 +80,13 @@ func loadTestdata(t *testing.T, name string) string {
 	return string(data)
 }
 
-func allocateError(_ int, _ gpt.Partition, err error) error {
-	return err
+func assertAllocated(t *testing.T, expectedIndex int) func(_ int, _ gpt.Partition, err error) {
+	return func(index int, _ gpt.Partition, err error) {
+		t.Helper()
+
+		require.NoError(t, err)
+		assert.Equal(t, expectedIndex, index)
+	}
 }
 
 func TestGPT(t *testing.T) {
@@ -133,19 +138,19 @@ func TestGPT(t *testing.T) {
 			allocator: func(t *testing.T, table *gpt.Table) {
 				t.Helper()
 
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "1G", partType1,
+				assertAllocated(t, 1)(table.AllocatePartition(1*GiB, "1G", partType1,
 					gpt.WithUniqueGUID(uuid.MustParse("DA66737E-1ED4-4DDF-B98C-70CEBFE3ADA0")),
-				)))
-				require.NoError(t, allocateError(table.AllocatePartition(100*MiB, "100M", partType1,
+				))
+				assertAllocated(t, 2)(table.AllocatePartition(100*MiB, "100M", partType1,
 					gpt.WithUniqueGUID(uuid.MustParse("3D0FE86B-7791-4659-B564-FC49A542866D")),
 					gpt.WithLegacyBIOSBootableAttribute(true),
-				)))
-				require.NoError(t, allocateError(table.AllocatePartition(2.5*GiB, "2.5G", partType2,
+				))
+				assertAllocated(t, 3)(table.AllocatePartition(2.5*GiB, "2.5G", partType2,
 					gpt.WithUniqueGUID(uuid.MustParse("EE1A711E-DE12-4D9F-98FF-672F7AD638F8")),
-				)))
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "1G", partType2,
+				))
+				assertAllocated(t, 4)(table.AllocatePartition(1*GiB, "1G", partType2,
 					gpt.WithUniqueGUID(uuid.MustParse("15E609C8-9775-4E86-AF59-8A87E7C03FAB")),
-				)))
+				))
 			},
 
 			expectedSfdiskDump: loadTestdata(t, "allocate.sfdisk"),
@@ -162,30 +167,30 @@ func TestGPT(t *testing.T) {
 
 				// allocate 4 1G partitions first, and delete two in the middle
 
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "1G1", partType1,
+				assertAllocated(t, 1)(table.AllocatePartition(1*GiB, "1G1", partType1,
 					gpt.WithUniqueGUID(uuid.MustParse("DA66737E-1ED4-4DDF-B98C-70CEBFE3ADA0")),
-				)))
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "1G2", partType1)))
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "1G3", partType1)))
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "1G4", partType2,
+				))
+				assertAllocated(t, 2)(table.AllocatePartition(1*GiB, "1G2", partType1))
+				assertAllocated(t, 3)(table.AllocatePartition(1*GiB, "1G3", partType1))
+				assertAllocated(t, 4)(table.AllocatePartition(1*GiB, "1G4", partType2,
 					gpt.WithUniqueGUID(uuid.MustParse("3D0FE86B-7791-4659-B564-FC49A542866D")),
-				)))
+				))
 
 				require.NoError(t, table.DeletePartition(1))
 				require.NoError(t, table.DeletePartition(2))
 
 				// gap is 2 GiB, while the tail available space is < 2 GiB, so small partitions will be appended to the end
-				require.NoError(t, allocateError(table.AllocatePartition(200*MiB, "200M", partType2,
+				assertAllocated(t, 5)(table.AllocatePartition(200*MiB, "200M", partType2,
 					gpt.WithUniqueGUID(uuid.MustParse("EE1A711E-DE12-4D9F-98FF-672F7AD638F8")),
-				)))
-				require.NoError(t, allocateError(table.AllocatePartition(400*MiB, "400M", partType2,
+				))
+				assertAllocated(t, 6)(table.AllocatePartition(400*MiB, "400M", partType2,
 					gpt.WithUniqueGUID(uuid.MustParse("15E609C8-9775-4E86-AF59-8A87E7C03FAB")),
-				)))
+				))
 
 				// bigger partition will fill the gap
-				require.NoError(t, allocateError(table.AllocatePartition(1500*MiB, "1500M", partType2,
+				assertAllocated(t, 2)(table.AllocatePartition(1500*MiB, "1500M", partType2,
 					gpt.WithUniqueGUID(uuid.MustParse("15E609C8-9775-4E86-AF59-8A87E7C03FAC")),
-				)))
+				))
 			},
 
 			expectedSfdiskDump: loadTestdata(t, "mix-allocate.sfdisk"),
@@ -201,12 +206,12 @@ func TestGPT(t *testing.T) {
 				t.Helper()
 
 				// allocate 2 1G partitions first, and grow the last one
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "1G", partType1,
+				assertAllocated(t, 1)(table.AllocatePartition(1*GiB, "1G", partType1,
 					gpt.WithUniqueGUID(uuid.MustParse("DA66737E-1ED4-4DDF-B98C-70CEBFE3ADA0")),
-				)))
-				require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "GROW", partType2,
+				))
+				assertAllocated(t, 2)(table.AllocatePartition(1*GiB, "GROW", partType2,
 					gpt.WithUniqueGUID(uuid.MustParse("3D0FE86B-7791-4659-B564-FC49A542866D")),
-				)))
+				))
 
 				// attempt to grow the first one
 				growth, err := table.AvailablePartitionGrowth(0)
@@ -340,8 +345,8 @@ func TestGPTOverwrite(t *testing.T) {
 	require.NoError(t, err)
 
 	// allocate 2 1G partitions first
-	require.NoError(t, allocateError(table.AllocatePartition(100*MiB, "1G", partType1)))
-	require.NoError(t, allocateError(table.AllocatePartition(1*GiB, "2G", partType2)))
+	assertAllocated(t, 1)(table.AllocatePartition(100*MiB, "1G", partType1))
+	assertAllocated(t, 2)(table.AllocatePartition(1*GiB, "2G", partType2))
 
 	require.NoError(t, table.Write())
 
@@ -353,9 +358,9 @@ func TestGPTOverwrite(t *testing.T) {
 	require.NoError(t, err)
 
 	// allocate new partitions first
-	require.NoError(t, allocateError(table2.AllocatePartition(600*MiB, "1P", partType1)))
-	require.NoError(t, allocateError(table2.AllocatePartition(600*MiB, "2P", partType2)))
-	require.NoError(t, allocateError(table2.AllocatePartition(600*MiB, "3P", partType2)))
+	assertAllocated(t, 1)(table2.AllocatePartition(600*MiB, "1P", partType1))
+	assertAllocated(t, 2)(table2.AllocatePartition(600*MiB, "2P", partType2))
+	assertAllocated(t, 3)(table2.AllocatePartition(600*MiB, "3P", partType2))
 
 	require.NoError(t, table2.Write())
 
