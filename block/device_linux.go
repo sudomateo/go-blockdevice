@@ -382,6 +382,8 @@ func (d *Device) getTransport(sysFsPath, deviceName string) string {
 		return "nvme"
 	case strings.HasPrefix(deviceName, "vd"):
 		return "virtio"
+	case strings.HasPrefix(deviceName, "xvd"):
+		return "xenblk"
 	case strings.HasPrefix(deviceName, "mmcblk"):
 		return "mmc"
 	}
