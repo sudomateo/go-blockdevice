@@ -7,158 +7,114 @@
 package blkid
 
 import (
+	"errors"
 	"fmt"
-	"io"
 	"os"
+	"syscall"
 
-	"go.uber.org/zap"
+	"golang.org/x/sys/unix"
 
-	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/chain"
-	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/probe"
+	"github.com/siderolabs/go-blockdevice/v2/block"
 )
 
-type probeReader struct {
-	io.ReaderAt
+// Probe returns the probe information for the specified file.
+//
+//nolint:cyclop
+func Probe(f *os.File, opts ...ProbeOption) (*Info, error) {
+	options := applyProbeOptions(opts...)
 
-	sectorSize uint
-	size       uint64
-}
+	unix.Fadvise(int(f.Fd()), 0, 0, unix.FADV_RANDOM) //nolint:errcheck // best-effort: we don't care if this fails
 
-func (r *probeReader) GetSectorSize() uint {
-	return r.sectorSize
-}
-
-func (r *probeReader) GetSize() uint64 {
-	return r.size
-}
-
-func (i *Info) fillProbeResult(f *os.File, options ProbeOptions) error {
-	chain := chain.Default()
-
-	res, matched, err := i.probe(f, chain, 0, i.Size, options)
+	st, err := f.Stat()
 	if err != nil {
-		return fmt.Errorf("error probing: %w", err)
+		return nil, fmt.Errorf("failed to stat: %w", err)
 	}
 
-	if res == nil {
-		return nil
-	}
+	info := &Info{}
 
-	i.Name = matched.Prober.Name()
-	i.UUID = res.UUID
-	i.BlockSize = res.BlockSize
-	i.FilesystemBlockSize = res.FilesystemBlockSize
-	i.ProbedSize = res.ProbedSize
-	i.Label = res.Label
+	sysStat := st.Sys().(*syscall.Stat_t) //nolint:errcheck,forcetypeassert // we know it's a syscall.Stat_t
 
-	if len(matched.Magic.Value) > 0 {
-		i.SignatureRanges = append(i.SignatureRanges, SignatureRange{
-			Offset: uint64(matched.Magic.Offset),
-			Size:   uint64(len(matched.Magic.Value)),
-		})
-	}
+	switch sysStat.Mode & unix.S_IFMT {
+	case unix.S_IFBLK:
+		// block device, initialize full support
+		info.BlockDevice = block.NewFromFile(f)
 
-	i.SignatureRanges = append(i.SignatureRanges, res.ExtraSignatures...)
-
-	if err = i.fillNested(f, chain, 0, &i.Parts, &i.SignatureRanges, res.Parts, options); err != nil {
-		return fmt.Errorf("error probing nested: %w", err)
-	}
-
-	return nil
-}
-
-func (i *Info) fillNested(f *os.File, chain chain.Chain, offset uint64, out *[]NestedProbeResult, outSignatures *[]SignatureRange, parts []probe.Partition, options ProbeOptions) error {
-	if len(parts) == 0 {
-		return nil
-	}
-
-	*out = make([]NestedProbeResult, len(parts))
-
-	for idx, part := range parts {
-		(*out)[idx].PartitionIndex = part.Index
-		(*out)[idx].PartitionUUID = part.UUID
-		(*out)[idx].PartitionType = part.TypeUUID
-		(*out)[idx].PartitionLabel = part.Label
-
-		(*out)[idx].PartitionOffset = part.Offset
-		(*out)[idx].PartitionSize = part.Size
-
-		res, matched, err := i.probe(f, chain, offset+part.Offset, part.Size, options)
+		info.DevNo, err = info.BlockDevice.GetDevNo()
 		if err != nil {
-			return fmt.Errorf("error probing nested: %w", err)
+			return nil, fmt.Errorf("failed to get device number: %w", err)
 		}
 
-		if res == nil {
-			continue
+		var (
+			size   uint64
+			ioSize uint
+		)
+
+		if size, err = info.BlockDevice.GetSize(); err == nil {
+			info.Size = size
+		} else {
+			return nil, fmt.Errorf("failed to get block device size: %w", err)
 		}
 
-		(*out)[idx].Name = matched.Prober.Name()
-		(*out)[idx].UUID = res.UUID
-		(*out)[idx].BlockSize = res.BlockSize
-		(*out)[idx].FilesystemBlockSize = res.FilesystemBlockSize
-		(*out)[idx].ProbedSize = res.ProbedSize
-		(*out)[idx].Label = res.Label
-
-		if len(matched.Magic.Value) > 0 {
-			*outSignatures = append(*outSignatures, SignatureRange{
-				Offset: offset + part.Offset + uint64(matched.Magic.Offset),
-				Size:   uint64(len(matched.Magic.Value)),
-			})
+		if ioSize, err = info.BlockDevice.GetIOSize(); err == nil {
+			info.IOSize = ioSize
+		} else {
+			return nil, fmt.Errorf("failed to get block device I/O size: %w", err)
 		}
 
-		*outSignatures = append(*outSignatures, res.ExtraSignatures...)
+		info.SectorSize = info.BlockDevice.GetSectorSize()
 
-		if err = i.fillNested(f, chain, offset+part.Offset, &(*out)[idx].Parts, outSignatures, res.Parts, options); err != nil {
-			return fmt.Errorf("error probing nested: %w", err)
+		info.WholeDisk, err = info.BlockDevice.IsWholeDisk()
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if block device is whole disk: %w", err)
+		}
+	case unix.S_IFREG:
+		// regular file (an image?), so use different settings
+		info.Size = uint64(st.Size())
+		info.SectorSize = options.SectorSize
+		info.IOSize = info.SectorSize
+	default:
+		return nil, fmt.Errorf("unsupported file type: %s", st.Mode().Type())
+	}
+
+	if info.BlockDevice != nil {
+		if private, err := info.BlockDevice.IsPrivateDeviceMapper(); private && err == nil {
+			// don't probe device-mapper devices
+			options.Logger.Debug("skipping private device-mapper device")
+
+			return info, nil
 		}
 	}
 
-	return nil
-}
+	if info.WholeDisk && info.BlockDevice.IsCD() && info.BlockDevice.IsCDNoMedia() {
+		// don't probe CD-ROM devices without media
+		options.Logger.Debug("skipping CD-ROM device without media")
 
-func (i *Info) probe(f *os.File, chain chain.Chain, offset, length uint64, options ProbeOptions) (*probe.Result, probe.MagicMatch, error) {
-	if offset+length > i.Size {
-		return nil, probe.MagicMatch{}, fmt.Errorf("probing range is out of bounds: offset %d + len %d > size %d", offset, length, i.Size)
+		return info, nil
 	}
 
-	if length < uint64(chain.MaxMagicSize()) {
-		return nil, probe.MagicMatch{}, fmt.Errorf("probing range is too small: len %d < max magic size %d", length, chain.MaxMagicSize())
-	}
+	if !options.SkipLocking && info.BlockDevice != nil {
+		// we need to lock the whole disk device (if probing a partition, we lock the whole disk)
+		wholeDisk, err := info.BlockDevice.GetWholeDisk()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get whole disk: %w", err)
+		}
 
-	magicReadSize := max(uint(chain.MaxMagicSize()), i.IOSize)
+		defer wholeDisk.Close() //nolint:errcheck
 
-	if uint64(magicReadSize) > length {
-		magicReadSize = uint(length)
-	}
-
-	buf := make([]byte, magicReadSize)
-
-	if _, err := f.ReadAt(buf, int64(offset)); err != nil {
-		return nil, probe.MagicMatch{}, fmt.Errorf("error reading magic buffer: %w", err)
-	}
-
-	pR := &probeReader{
-		ReaderAt: io.NewSectionReader(f, int64(offset), int64(length)),
-
-		sectorSize: i.SectorSize,
-		size:       length,
-	}
-
-	for _, matched := range chain.MagicMatches(buf) {
-		res, err := matched.Prober.Probe(pR, matched.Magic)
-		if err != nil || res == nil {
-			if err != nil {
-				options.Logger.Debug("magic matched, but probe failed", zap.Uint64("offset", offset), zap.String("name", matched.Prober.Name()), zap.Error(err))
-			} else {
-				options.Logger.Debug("magic matched, but probe returned no result", zap.Uint64("offset", offset), zap.String("name", matched.Prober.Name()))
+		if err = wholeDisk.TryLock(false); err != nil {
+			if errors.Is(err, unix.EWOULDBLOCK) {
+				return nil, ErrFailedLock
 			}
 
-			// skip failed probes
-			continue
+			return nil, fmt.Errorf("failed to lock whole disk: %w", err)
 		}
 
-		return res, matched, nil
+		defer wholeDisk.Unlock() //nolint:errcheck
 	}
 
-	return nil, probe.MagicMatch{}, nil
+	if err := info.fillProbeResult(f, options); err != nil {
+		return nil, fmt.Errorf("failed to probe: %w", err)
+	}
+
+	return info, nil
 }

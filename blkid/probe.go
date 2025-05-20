@@ -1,0 +1,162 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+package blkid
+
+import (
+	"fmt"
+	"io"
+	"os"
+
+	"go.uber.org/zap"
+
+	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/chain"
+	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/probe"
+)
+
+type probeReader struct {
+	io.ReaderAt
+
+	sectorSize uint
+	size       uint64
+}
+
+func (r *probeReader) GetSectorSize() uint {
+	return r.sectorSize
+}
+
+func (r *probeReader) GetSize() uint64 {
+	return r.size
+}
+
+func (i *Info) fillProbeResult(f *os.File, options ProbeOptions) error {
+	chain := chain.Default()
+
+	res, matched, err := i.probe(f, chain, 0, i.Size, options)
+	if err != nil {
+		return fmt.Errorf("error probing: %w", err)
+	}
+
+	if res == nil {
+		return nil
+	}
+
+	i.Name = matched.Prober.Name()
+	i.UUID = res.UUID
+	i.BlockSize = res.BlockSize
+	i.FilesystemBlockSize = res.FilesystemBlockSize
+	i.ProbedSize = res.ProbedSize
+	i.Label = res.Label
+
+	if len(matched.Magic.Value) > 0 {
+		i.SignatureRanges = append(i.SignatureRanges, SignatureRange{
+			Offset: uint64(matched.Magic.Offset),
+			Size:   uint64(len(matched.Magic.Value)),
+		})
+	}
+
+	i.SignatureRanges = append(i.SignatureRanges, res.ExtraSignatures...)
+
+	if err = i.fillNested(f, chain, 0, &i.Parts, &i.SignatureRanges, res.Parts, options); err != nil {
+		return fmt.Errorf("error probing nested: %w", err)
+	}
+
+	return nil
+}
+
+func (i *Info) fillNested(f *os.File, chain chain.Chain, offset uint64, out *[]NestedProbeResult, outSignatures *[]SignatureRange, parts []probe.Partition, options ProbeOptions) error {
+	if len(parts) == 0 {
+		return nil
+	}
+
+	*out = make([]NestedProbeResult, len(parts))
+
+	for idx, part := range parts {
+		(*out)[idx].PartitionIndex = part.Index
+		(*out)[idx].PartitionUUID = part.UUID
+		(*out)[idx].PartitionType = part.TypeUUID
+		(*out)[idx].PartitionLabel = part.Label
+
+		(*out)[idx].PartitionOffset = part.Offset
+		(*out)[idx].PartitionSize = part.Size
+
+		res, matched, err := i.probe(f, chain, offset+part.Offset, part.Size, options)
+		if err != nil {
+			return fmt.Errorf("error probing nested: %w", err)
+		}
+
+		if res == nil {
+			continue
+		}
+
+		(*out)[idx].Name = matched.Prober.Name()
+		(*out)[idx].UUID = res.UUID
+		(*out)[idx].BlockSize = res.BlockSize
+		(*out)[idx].FilesystemBlockSize = res.FilesystemBlockSize
+		(*out)[idx].ProbedSize = res.ProbedSize
+		(*out)[idx].Label = res.Label
+
+		if len(matched.Magic.Value) > 0 {
+			*outSignatures = append(*outSignatures, SignatureRange{
+				Offset: offset + part.Offset + uint64(matched.Magic.Offset),
+				Size:   uint64(len(matched.Magic.Value)),
+			})
+		}
+
+		*outSignatures = append(*outSignatures, res.ExtraSignatures...)
+
+		if err = i.fillNested(f, chain, offset+part.Offset, &(*out)[idx].Parts, outSignatures, res.Parts, options); err != nil {
+			return fmt.Errorf("error probing nested: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (i *Info) probe(f *os.File, chain chain.Chain, offset, length uint64, options ProbeOptions) (*probe.Result, probe.MagicMatch, error) {
+	if offset+length > i.Size {
+		return nil, probe.MagicMatch{}, fmt.Errorf("probing range is out of bounds: offset %d + len %d > size %d", offset, length, i.Size)
+	}
+
+	if length < uint64(chain.MaxMagicSize()) {
+		return nil, probe.MagicMatch{}, fmt.Errorf("probing range is too small: len %d < max magic size %d", length, chain.MaxMagicSize())
+	}
+
+	magicReadSize := max(uint(chain.MaxMagicSize()), i.IOSize)
+
+	if uint64(magicReadSize) > length {
+		magicReadSize = uint(length)
+	}
+
+	buf := make([]byte, magicReadSize)
+
+	if _, err := f.ReadAt(buf, int64(offset)); err != nil {
+		return nil, probe.MagicMatch{}, fmt.Errorf("error reading magic buffer: %w", err)
+	}
+
+	pR := &probeReader{
+		ReaderAt: io.NewSectionReader(f, int64(offset), int64(length)),
+
+		sectorSize: i.SectorSize,
+		size:       length,
+	}
+
+	for _, matched := range chain.MagicMatches(buf) {
+		res, err := matched.Prober.Probe(pR, matched.Magic)
+		if err != nil || res == nil {
+			if err != nil {
+				options.Logger.Debug("magic matched, but probe failed", zap.Uint64("offset", offset), zap.String("name", matched.Prober.Name()), zap.Error(err))
+			} else {
+				options.Logger.Debug("magic matched, but probe returned no result", zap.Uint64("offset", offset), zap.String("name", matched.Prober.Name()))
+			}
+
+			// skip failed probes
+			continue
+		}
+
+		return res, matched, nil
+	}
+
+	return nil, probe.MagicMatch{}, nil
+}
