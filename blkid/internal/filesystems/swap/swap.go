@@ -5,9 +5,6 @@
 // Package swap probes Linux swapspaces.
 package swap
 
-// TODO: is it little or host endian?
-//go:generate go run ../../../../internal/cstruct/cstruct.go -pkg swap -struct SwapHeader -input swap_header.h -endianness LittleEndian
-
 import (
 	"bytes"
 
@@ -16,6 +13,7 @@ import (
 
 	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/magic"
 	"github.com/siderolabs/go-blockdevice/v2/blkid/internal/probe"
+	"github.com/siderolabs/go-blockdevice/v2/internal/swapstructs"
 )
 
 var (
@@ -96,13 +94,13 @@ func (p *Probe) Name() string {
 
 // Probe runs the further inspection and returns the result if successful.
 func (p *Probe) Probe(r probe.Reader, m magic.Magic) (*probe.Result, error) {
-	buf := make([]byte, SWAPHEADER_SIZE)
+	buf := make([]byte, swapstructs.SWAPHEADER_SIZE)
 
-	if _, err := r.ReadAt(buf, 1024); err != nil {
+	if _, err := r.ReadAt(buf, swapstructs.SignatureOffset); err != nil {
 		return nil, err
 	}
 
-	hdr := SwapHeader(buf)
+	hdr := swapstructs.SwapHeader(buf)
 
 	if hdr.Get_version() != 1 || hdr.Get_lastpage() == 0 {
 		return nil, nil //nolint:nilnil

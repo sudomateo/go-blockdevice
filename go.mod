@@ -1,18 +1,18 @@
 module github.com/siderolabs/go-blockdevice/v2
 
-go 1.22.0
+go 1.24.0
 
 require (
 	github.com/freddierice/go-losetup/v2 v2.0.1
 	github.com/google/uuid v1.6.0
-	github.com/klauspost/compress v1.17.9
-	github.com/siderolabs/gen v0.5.0
-	github.com/siderolabs/go-cmd v0.1.1
-	github.com/siderolabs/go-pointer v1.0.0
-	github.com/stretchr/testify v1.9.0
+	github.com/klauspost/compress v1.18.0
+	github.com/siderolabs/gen v0.8.1
+	github.com/siderolabs/go-cmd v0.1.3
+	github.com/siderolabs/go-pointer v1.0.1
+	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.20.0
-	golang.org/x/text v0.15.0
+	golang.org/x/sys v0.33.0
+	golang.org/x/text v0.25.0
 )
 
 require (

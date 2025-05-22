@@ -169,7 +169,7 @@ func isValid(msdosSB MSDOSSB, vfatSB VFATSB) (uint32, bool) {
 		return 0, false
 	}
 
-	if !(0xf8 <= msdosSB.Get_ms_media() || msdosSB.Get_ms_media() == 0xf0) {
+	if !(0xf8 <= msdosSB.Get_ms_media() || msdosSB.Get_ms_media() == 0xf0) { //nolint:staticcheck
 		return 0, false
 	}
 

@@ -5,7 +5,6 @@
 package block_test
 
 import (
-	"context"
 	"errors"
 	randv2 "math/rand/v2"
 	"os"
@@ -210,7 +209,7 @@ func TestDevice(t *testing.T) {
 		errCh := make(chan error)
 
 		go func() {
-			errCh <- devWhole2.RetryLockWithTimeout(context.Background(), true, 10*time.Second)
+			errCh <- devWhole2.RetryLockWithTimeout(t.Context(), true, 10*time.Second)
 		}()
 
 		time.Sleep(1 * time.Second)
