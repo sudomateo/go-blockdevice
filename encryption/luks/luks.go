@@ -361,7 +361,6 @@ func (l *LUKS) runCommand(ctx context.Context, args []string, stdin []byte) (str
 		bytes.NewReader(stdin)), "cryptsetup", args...)
 	if err != nil {
 		var exitError *cmd.ExitError
-
 		if errors.As(err, &exitError) {
 			switch exitError.ExitCode {
 			case 1:

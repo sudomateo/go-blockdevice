@@ -156,6 +156,11 @@ func Read(dev Device, opts ...Option) (*Table, error) {
 		return nil, errors.New("device too small for GPT")
 	}
 
+	t := &Table{
+		dev:     dev,
+		options: options,
+	}
+
 	hdr, entries, err := gptstructs.ReadHeader(dev, 1, lastLBA)
 	if err != nil && !errors.Is(err, gptstructs.ErrZeroedHeader) { // fallback to backup header if header is zeroed
 		return nil, err
@@ -166,6 +171,18 @@ func Read(dev Device, opts ...Option) (*Table, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		if hdr != nil {
+			// secondary header is valid, init values from it
+			t.primaryHeaderLBA = hdr.Get_alternate_lba()
+			t.secondaryHeaderLBA = hdr.Get_my_lba()
+			t.secondaryPartitionsLBA = hdr.Get_partition_entries_lba()
+		}
+	} else {
+		// primary header is valid, init values from it
+		t.primaryHeaderLBA = hdr.Get_my_lba()
+		t.secondaryHeaderLBA = hdr.Get_alternate_lba()
+		t.primaryPartitionsLBA = hdr.Get_partition_entries_lba()
 	}
 
 	if hdr == nil {
@@ -177,11 +194,9 @@ func Read(dev Device, opts ...Option) (*Table, error) {
 		return nil, err
 	}
 
-	t := &Table{
-		dev:      dev,
-		options:  options,
-		diskGUID: diskGUID,
-	}
+	t.diskGUID = diskGUID
+	t.firstUsableLBA = hdr.Get_first_usable_lba()
+	t.lastUsableLBA = hdr.Get_last_usable_lba()
 
 	t.init(lastLBA)
 
@@ -243,19 +258,24 @@ func Read(dev Device, opts ...Option) (*Table, error) {
 }
 
 func (t *Table) init(lastLBA uint64) {
+	// we re-use primary header values if they are set,
+	// but secondary/end values are recalculated from lastLBA
 	t.lastLBA = lastLBA
 	t.sectorSize = t.dev.GetSectorSize()
 
 	lbasForEntries := (gptstructs.ENTRY_SIZE*gptstructs.NumEntries + t.sectorSize - 1) / t.sectorSize
 
-	t.primaryHeaderLBA = uint64(1)
+	if t.primaryHeaderLBA == 0 {
+		t.primaryHeaderLBA = uint64(1)
+	}
+
 	t.secondaryHeaderLBA = lastLBA
 
-	t.primaryPartitionsLBA = t.primaryHeaderLBA + 1 + uint64(t.options.SkipLBAs)
-	t.secondaryPartitionsLBA = t.secondaryHeaderLBA - uint64(lbasForEntries)
+	if t.primaryPartitionsLBA == 0 {
+		t.primaryPartitionsLBA = t.primaryHeaderLBA + 1 + uint64(t.options.SkipLBAs)
+	}
 
-	t.firstUsableLBA = t.primaryPartitionsLBA + uint64(lbasForEntries)
-	t.lastUsableLBA = t.secondaryPartitionsLBA - 1
+	t.secondaryPartitionsLBA = t.secondaryHeaderLBA - uint64(lbasForEntries)
 
 	ioSize, err := t.dev.GetIOSize()
 	if err != nil {
@@ -265,7 +285,12 @@ func (t *Table) init(lastLBA uint64) {
 	alignmentSize := max(ioSize, 1048576)                                   // align to 1Mib minimum
 	t.alignment = uint64((alignmentSize + t.sectorSize - 1) / t.sectorSize) // 2048 with 512 sector size, 256 with 4096 sector size
 
-	t.firstUsableLBA = (t.firstUsableLBA + t.alignment - 1) / t.alignment * t.alignment // 2048 with 512 sector size, 256 with 4096 sector size
+	if t.firstUsableLBA == 0 {
+		t.firstUsableLBA = t.primaryPartitionsLBA + uint64(lbasForEntries)
+		t.firstUsableLBA = (t.firstUsableLBA + t.alignment - 1) / t.alignment * t.alignment // 2048 with 512 sector size, 256 with 4096 sector size
+	}
+
+	t.lastUsableLBA = t.secondaryPartitionsLBA - 1
 }
 
 // Clear the partition table.

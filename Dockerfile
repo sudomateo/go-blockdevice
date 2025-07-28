@@ -1,8 +1,8 @@
-# syntax = docker/dockerfile-upstream:1.15.1-labs
+# syntax = docker/dockerfile-upstream:1.17.1-labs
 
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2025-05-22T16:02:51Z by kres 9f64b0d.
+# Generated on 2025-07-28T16:44:46Z by kres 1f18c2e.
 
 ARG TOOLCHAIN
 
@@ -10,7 +10,7 @@ ARG TOOLCHAIN
 FROM scratch AS generate
 
 # runs markdownlint
-FROM docker.io/oven/bun:1.2.13-alpine AS lint-markdown
+FROM docker.io/oven/bun:1.2.18-alpine AS lint-markdown
 WORKDIR /src
 RUN bun i markdownlint-cli@0.45.0 sentences-per-line@0.3.0
 COPY .markdownlint.json .
@@ -94,14 +94,14 @@ FROM base AS unit-tests-race
 COPY --from=zfs-img / /src/blkid/testdata/
 WORKDIR /src
 ARG TESTPKGS
-RUN --security=insecure --mount=type=cache,target=/root/.cache/go-build,id=go-blockdevice/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-blockdevice/go/pkg --mount=type=cache,target=/tmp,id=go-blockdevice/tmp CGO_ENABLED=1 go test -v -race -count 1 ${TESTPKGS}
+RUN --security=insecure --mount=type=cache,target=/root/.cache/go-build,id=go-blockdevice/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-blockdevice/go/pkg --mount=type=cache,target=/tmp,id=go-blockdevice/tmp CGO_ENABLED=1 go test -race ${TESTPKGS}
 
 # runs unit-tests
 FROM base AS unit-tests-run
 COPY --from=zfs-img / /src/blkid/testdata/
 WORKDIR /src
 ARG TESTPKGS
-RUN --security=insecure --mount=type=cache,target=/root/.cache/go-build,id=go-blockdevice/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-blockdevice/go/pkg --mount=type=cache,target=/tmp,id=go-blockdevice/tmp go test -v -covermode=atomic -coverprofile=coverage.txt -coverpkg=${TESTPKGS} -count 1 ${TESTPKGS}
+RUN --security=insecure --mount=type=cache,target=/root/.cache/go-build,id=go-blockdevice/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-blockdevice/go/pkg --mount=type=cache,target=/tmp,id=go-blockdevice/tmp go test -covermode=atomic -coverprofile=coverage.txt -coverpkg=${TESTPKGS} ${TESTPKGS}
 
 FROM scratch AS unit-tests
 COPY --from=unit-tests-run /src/coverage.txt /coverage-unit-tests.txt

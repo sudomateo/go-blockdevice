@@ -369,6 +369,126 @@ func TestGPTOverwrite(t *testing.T) {
 	assert.FileExists(t, loDev.Path()+"p3")
 }
 
+func TestGPTDifferentIOSize(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test requires root privileges")
+	}
+
+	tmpDir := t.TempDir()
+
+	rawImage := filepath.Join(tmpDir, "image.raw")
+
+	f, err := os.Create(rawImage)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Truncate(2*GiB))
+	require.NoError(t, f.Close())
+
+	loDev := losetupAttachHelper(t, rawImage, false)
+
+	t.Cleanup(func() {
+		assert.NoError(t, loDev.Detach())
+	})
+
+	disk, err := os.OpenFile(loDev.Path(), os.O_RDWR, 0)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		assert.NoError(t, disk.Close())
+	})
+
+	blkdev := block.NewFromFile(disk)
+
+	gptdev, err := gpt.DeviceFromBlockDevice(blkdev)
+	require.NoError(t, err)
+
+	table, err := gpt.New(gptdev)
+	require.NoError(t, err)
+
+	partType1 := uuid.MustParse("C12A7328-F81F-11D2-BA4B-00A0C93EC93B")
+
+	// allocate two partitions
+	assertAllocated(t, 1)(table.AllocatePartition(1*MiB, "1M", partType1))
+	assertAllocated(t, 2)(table.AllocatePartition(1*GiB, "1G", partType1))
+
+	require.NoError(t, table.Write())
+
+	// now wrap the gpt devices with a new IO size
+	ioSizeWrapper := &ioSizeWrapper{
+		Device: gptdev,
+		ioSize: 2 * MiB,
+	}
+
+	table2, err := gpt.Read(ioSizeWrapper)
+	require.NoError(t, err)
+
+	// the partition table should be the same even if the IO size is different
+	assert.Equal(t, table.Partitions(), table2.Partitions())
+}
+
+func TestGPTSkipBlocks(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("test requires root privileges")
+	}
+
+	tmpDir := t.TempDir()
+
+	rawImage := filepath.Join(tmpDir, "image.raw")
+
+	f, err := os.Create(rawImage)
+	require.NoError(t, err)
+
+	require.NoError(t, f.Truncate(2*GiB))
+	require.NoError(t, f.Close())
+
+	loDev := losetupAttachHelper(t, rawImage, false)
+
+	t.Cleanup(func() {
+		assert.NoError(t, loDev.Detach())
+	})
+
+	disk, err := os.OpenFile(loDev.Path(), os.O_RDWR, 0)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		assert.NoError(t, disk.Close())
+	})
+
+	blkdev := block.NewFromFile(disk)
+
+	gptdev, err := gpt.DeviceFromBlockDevice(blkdev)
+	require.NoError(t, err)
+
+	table, err := gpt.New(gptdev, gpt.WithSkipLBAs(10240))
+	require.NoError(t, err)
+
+	partType1 := uuid.MustParse("C12A7328-F81F-11D2-BA4B-00A0C93EC93B")
+
+	// allocate partition spanning whole disk
+	assertAllocated(t, 1)(table.AllocatePartition(table.LargestContiguousAllocatable(), "1G", partType1))
+
+	assert.EqualValues(t, 0, table.LargestContiguousAllocatable())
+
+	require.NoError(t, table.Write())
+
+	table2, err := gpt.Read(gptdev)
+	require.NoError(t, err)
+
+	// if we read the table back, it should honor first LBA skip
+	assert.Equal(t, table2.LargestContiguousAllocatable(), table.LargestContiguousAllocatable())
+}
+
+type ioSizeWrapper struct {
+	gpt.Device
+
+	ioSize uint
+}
+
+func (w *ioSizeWrapper) GetIOSize() (uint, error) {
+	return w.ioSize, nil
+}
+
+//nolint:unparam
 func losetupAttachHelper(t *testing.T, rawImage string, readonly bool) losetup.Device {
 	t.Helper()
 
