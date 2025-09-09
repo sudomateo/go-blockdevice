@@ -9,10 +9,10 @@ require (
 	github.com/siderolabs/gen v0.8.5
 	github.com/siderolabs/go-cmd v0.1.3
 	github.com/siderolabs/go-pointer v1.0.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.0
-	golang.org/x/sys v0.34.0
-	golang.org/x/text v0.27.0
+	golang.org/x/sys v0.36.0
+	golang.org/x/text v0.29.0
 )
 
 require (
