@@ -6,6 +6,7 @@ package filesystem
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"os"
 	"syscall"
@@ -71,19 +72,30 @@ func Probe(path string) (SuperBlocker, error) { //nolint:ireturn
 		&ext4.SuperBlock{},
 	}
 
+	// This block must attempt to read each superblock and return only when a
+	// valid superblock is found. This accounts for the case where there's an
+	// error reading an earlier superblock but success reading a later superblock.
+	// The errors encountered along the way are collected so users know which
+	// superblocks were attempted to be read.
 	for _, sb := range superblocks {
-		if _, err = f.Seek(sb.Offset(), io.SeekStart); err != nil {
-			return nil, err
+		if _, seekErr := f.Seek(sb.Offset(), io.SeekStart); seekErr != nil {
+			err = errors.Join(err, seekErr)
+			continue
 		}
 
-		err = binary.Read(f, binary.BigEndian, sb)
-		if err != nil {
-			return nil, err
+		if readErr := binary.Read(f, binary.BigEndian, sb); readErr != nil {
+			err = errors.Join(err, readErr)
+			continue
 		}
 
 		if sb.Is() {
 			return sb, nil
 		}
+	}
+
+	// No valid superblocks were found.
+	if err != nil {
+		return nil, err
 	}
 
 	return nil, nil //nolint:nilnil
